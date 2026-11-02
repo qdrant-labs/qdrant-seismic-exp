@@ -429,7 +429,9 @@ where
         let idf_corpus = params
             .and_then(|params| params.idf.as_ref())
             .and_then(|idf| idf.corpus());
-        let vector_query_context = query_context.get_vector_context(vector_name, idf_corpus);
+        let vector_query_context = query_context
+            .get_vector_context(vector_name, idf_corpus)
+            .with_query_cut(params.and_then(|params| params.query_cut));
         let internal_results = vector_data.vector_index().search(
             query_vectors,
             filter,

@@ -96,6 +96,11 @@ pub struct SearchParams {
     /// payload fields. Rarely needed on mobile.
     #[uniffi(default = false)]
     pub indexed_only: bool,
+    /// Sparse vectors only: search with just this many query dimensions,
+    /// those with the largest absolute weight. Faster but approximate. Must
+    /// be at least 1. `None` searches with the full query.
+    #[uniffi(default = None)]
+    pub query_cut: Option<u64>,
 }
 
 impl From<SearchParams> for SegmentSearchParams {
@@ -104,6 +109,7 @@ impl From<SearchParams> for SegmentSearchParams {
             hnsw_ef,
             exact,
             indexed_only,
+            query_cut,
         } = p;
         SegmentSearchParams {
             hnsw_ef: hnsw_ef.map(crate::error::clamp_usize),
@@ -112,6 +118,7 @@ impl From<SearchParams> for SegmentSearchParams {
             indexed_only,
             acorn: None,
             idf: None,
+            query_cut: query_cut.map(crate::error::clamp_usize),
         }
     }
 }

@@ -715,6 +715,15 @@ pub struct SearchParams {
     #[validate(nested)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idf: Option<IdfParams>,
+
+    /// Only applicable to sparse vectors.
+    /// Search with just the `query_cut` query dimensions that have the largest absolute weight,
+    /// ignoring the rest. Faster, but approximate: points that match only the ignored dimensions
+    /// are not found. If not set, the full query is used.
+    #[serde(default)]
+    #[validate(range(min = 1))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_cut: Option<usize>,
 }
 
 /// Population over which IDF statistics are computed for scoring — the *IDF

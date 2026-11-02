@@ -529,6 +529,12 @@ message SearchParams {
   // Which population IDF statistics are computed over.
   // If unset, statistics are collection-wide (global).
   optional IdfParams idf = 6;
+
+  // Only applicable to sparse vectors.
+  // Search with just the `query_cut` query dimensions that have the largest absolute weight,
+  // ignoring the rest. Faster, but approximate: points that match only the ignored dimensions
+  // are not found. If unset, the full query is used.
+  optional uint64 query_cut = 7;
 }
 
 message SearchPoints {

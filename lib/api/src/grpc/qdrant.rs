@@ -6016,6 +6016,13 @@ pub struct SearchParams {
     #[prost(message, optional, tag = "6")]
     #[validate(nested)]
     pub idf: ::core::option::Option<IdfParams>,
+    /// Only applicable to sparse vectors.
+    /// Search with just the `query_cut` query dimensions that have the largest absolute weight,
+    /// ignoring the rest. Faster, but approximate: points that match only the ignored dimensions
+    /// are not found. If unset, the full query is used.
+    #[prost(uint64, optional, tag = "7")]
+    #[validate(range(min = 1))]
+    pub query_cut: ::core::option::Option<u64>,
 }
 #[derive(validator::Validate)]
 #[derive(serde::Serialize)]

@@ -2234,6 +2234,7 @@ class SearchParams:
         indexed_only: bool = False,
         acorn: Optional["AcornSearchParams"] = None,
         idf: Optional["IdfParams"] = None,
+        query_cut: Optional[int] = None,
     ) -> None:
         """
         Create SearchParams.
@@ -2245,6 +2246,9 @@ class SearchParams:
             indexed_only: Whether to search only indexed vectors.
             acorn: Acorn search parameters.
             idf: Population sparse IDF statistics are computed over.
+            query_cut: Sparse vectors only. Search with only this many query
+                dimensions, those with the largest absolute weight. Faster but
+                approximate. Must be at least 1. Searches the full query if not set.
         """
         ...
 
@@ -2276,6 +2280,11 @@ class SearchParams:
     @property
     def idf(self) -> Optional["IdfParams"]:
         """IDF scope parameters."""
+        ...
+
+    @property
+    def query_cut(self) -> Optional[int]:
+        """Number of query dimensions kept in sparse search."""
         ...
 
 class IdfParams:
