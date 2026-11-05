@@ -431,7 +431,7 @@ where
             .and_then(|idf| idf.corpus());
         let vector_query_context = query_context
             .get_vector_context(vector_name, idf_corpus)
-            .with_query_cut(params.and_then(|params| params.query_cut));
+            .with_keep_query_dims(params.and_then(|params| params.keep_query_dims));
         let internal_results = vector_data.vector_index().search(
             query_vectors,
             filter,

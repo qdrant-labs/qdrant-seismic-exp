@@ -2234,7 +2234,7 @@ class SearchParams:
         indexed_only: bool = False,
         acorn: Optional["AcornSearchParams"] = None,
         idf: Optional["IdfParams"] = None,
-        query_cut: Optional[int] = None,
+        keep_query_dims: Optional[int] = None,
     ) -> None:
         """
         Create SearchParams.
@@ -2246,9 +2246,10 @@ class SearchParams:
             indexed_only: Whether to search only indexed vectors.
             acorn: Acorn search parameters.
             idf: Population sparse IDF statistics are computed over.
-            query_cut: Sparse vectors only. Search with only this many query
-                dimensions, those with the largest absolute weight. Faster but
-                approximate. Must be at least 1. Searches the full query if not set.
+            keep_query_dims: Sparse vectors only. Keep only the provided number of
+                dimensions from the query. Dimensions are selected by largest absolute
+                weight. Must be at least 1. This parameter enables approximate sparse
+                search (Qdrant's default is exact): use with caution.
         """
         ...
 
@@ -2283,7 +2284,7 @@ class SearchParams:
         ...
 
     @property
-    def query_cut(self) -> Optional[int]:
+    def keep_query_dims(self) -> Optional[int]:
         """Number of query dimensions kept in sparse search."""
         ...
 

@@ -717,13 +717,13 @@ pub struct SearchParams {
     pub idf: Option<IdfParams>,
 
     /// Only applicable to sparse vectors.
-    /// Search with just the `query_cut` query dimensions that have the largest absolute weight,
-    /// ignoring the rest. Faster, but approximate: points that match only the ignored dimensions
-    /// are not found. If not set, the full query is used.
+    /// Keep only the provided number of dimensions from the query. Dimensions are selected by
+    /// largest absolute weight. This parameter enables approximate sparse search (Qdrant's
+    /// default is exact): use with caution.
     #[serde(default)]
     #[validate(range(min = 1))]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub query_cut: Option<usize>,
+    pub keep_query_dims: Option<usize>,
 }
 
 /// Population over which IDF statistics are computed for scoring — the *IDF

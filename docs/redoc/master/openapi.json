@@ -16108,8 +16108,8 @@
               }
             ]
           },
-          "query_cut": {
-            "description": "Only applicable to sparse vectors. Search with just the `query_cut` query dimensions that have the largest absolute weight, ignoring the rest. Faster, but approximate: points that match only the ignored dimensions are not found. If not set, the full query is used.",
+          "keep_query_dims": {
+            "description": "Only applicable to sparse vectors. Keep only the provided number of dimensions from the query. Dimensions are selected by largest absolute weight. This parameter enables approximate sparse search (Qdrant's default is exact): use with caution.",
             "type": "integer",
             "format": "uint",
             "minimum": 1,

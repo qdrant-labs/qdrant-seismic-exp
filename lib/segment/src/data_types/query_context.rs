@@ -352,7 +352,7 @@ impl<'a> SegmentQueryContext<'a> {
                 .and_then(|scope| scope.indexed_vectors.get(vector_name))
                 .copied(),
             deleted_points: self.deleted_points,
-            query_cut: None,
+            keep_query_dims: None,
         }
     }
 
@@ -403,19 +403,19 @@ pub struct VectorQueryContext<'a> {
 
     /// Sparse vectors only: keep just this many query dimensions, those with the largest
     /// absolute weight, when searching. `None` searches with the full query.
-    query_cut: Option<usize>,
+    keep_query_dims: Option<usize>,
 }
 
 impl VectorQueryContext<'_> {
     /// Set the number of query dimensions to keep in sparse search.
     #[must_use]
-    pub fn with_query_cut(mut self, query_cut: Option<usize>) -> Self {
-        self.query_cut = query_cut;
+    pub fn with_keep_query_dims(mut self, keep_query_dims: Option<usize>) -> Self {
+        self.keep_query_dims = keep_query_dims;
         self
     }
 
-    pub fn query_cut(&self) -> Option<usize> {
-        self.query_cut
+    pub fn keep_query_dims(&self) -> Option<usize> {
+        self.keep_query_dims
     }
 
     pub fn search_optimized_threshold_kb(&self) -> usize {
@@ -465,7 +465,7 @@ impl Default for VectorQueryContext<'_> {
             idf: None,
             indexed_vectors: None,
             deleted_points: None,
-            query_cut: None,
+            keep_query_dims: None,
         }
     }
 }

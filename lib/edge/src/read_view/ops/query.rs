@@ -613,42 +613,42 @@ mod tests {
         assert_eq!(ids, vec![2.into()]);
     }
 
-    fn query_cut_params(query_cut: usize) -> SearchParams {
+    fn keep_query_dims_params(keep_query_dims: usize) -> SearchParams {
         SearchParams {
-            query_cut: Some(query_cut),
+            keep_query_dims: Some(keep_query_dims),
             ..Default::default()
         }
     }
 
-    /// `query_cut = 0` must be rejected at the top level and inside a prefetch, as the server does.
+    /// `keep_query_dims = 0` must be rejected at the top level and inside a prefetch, as the server does.
     #[test]
-    fn query_rejects_zero_query_cut() {
+    fn query_rejects_zero_keep_query_dims() {
         let dir = tempfile::tempdir().unwrap();
         let shard = shard_with_points(&dir, 4);
 
         let top_level = QueryRequestBuilder::new(2)
             .query(nearest_query(1.0))
-            .params(query_cut_params(0))
+            .params(keep_query_dims_params(0))
             .build();
         let prefetch = QueryRequestBuilder::new(2)
             .query(nearest_query(1.0))
             .prefetches(vec![
                 PrefetchBuilder::new(2)
                     .query(nearest_query(1.0))
-                    .params(query_cut_params(0))
+                    .params(keep_query_dims_params(0))
                     .build(),
             ])
             .build();
 
         for request in [top_level, prefetch] {
             let error = shard.query(request).unwrap_err();
-            assert!(error.to_string().contains("query_cut"), "{error}");
+            assert!(error.to_string().contains("keep_query_dims"), "{error}");
         }
 
         // A valid cut passes validation: it is a no-op on a dense query.
         let valid = QueryRequestBuilder::new(2)
             .query(nearest_query(1.0))
-            .params(query_cut_params(1))
+            .params(keep_query_dims_params(1))
             .build();
         shard.query(valid).unwrap();
     }

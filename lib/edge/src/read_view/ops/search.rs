@@ -53,10 +53,13 @@ impl<H: ReadSegmentHandle> EdgeReadView<H> {
         // The server rejects this when it parses the request. Without the check, `0` would trip a
         // debug assertion in debug builds and silently empty the query in release builds.
         for search in searches {
-            let query_cut = search.params.as_ref().and_then(|params| params.query_cut);
-            if query_cut == Some(0) {
+            let keep_query_dims = search
+                .params
+                .as_ref()
+                .and_then(|params| params.keep_query_dims);
+            if keep_query_dims == Some(0) {
                 return Err(OperationError::validation_error(
-                    "`query_cut` must be at least 1",
+                    "`keep_query_dims` must be at least 1",
                 ));
             }
         }
