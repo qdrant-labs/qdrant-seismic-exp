@@ -715,6 +715,16 @@ pub struct SearchParams {
     #[validate(nested)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idf: Option<IdfParams>,
+
+    /// Only applicable to sparse vectors.
+    /// Keep only the provided fraction of the total query weight. The shortened query is computed
+    /// by taking the dimensions with the largest absolute weight whose sum is equal to or greater
+    /// than the requested fraction of the total weight. This parameter enables approximate sparse
+    /// search (Qdrant's default is exact): use with caution.
+    #[serde(default)]
+    #[validate(custom(function = "validate_keep_query_weight"))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_query_weight: Option<OrderedFloat<f32>>,
 }
 
 /// Population over which IDF statistics are computed for scoring — the *IDF
@@ -788,6 +798,21 @@ pub struct VectorsConfigDefaults {
     #[serde(default)]
     #[validate(custom(function = "validate_dense_vector_memory"))]
     pub memory: Option<Memory>,
+}
+
+/// `keep_query_weight` is a fraction of the query weight: greater than 0, at most 1. NaN is rejected too.
+pub fn validate_keep_query_weight(
+    keep_query_weight: &OrderedFloat<f32>,
+) -> Result<(), ValidationError> {
+    let keep_query_weight = keep_query_weight.into_inner();
+    if keep_query_weight > 0.0 && keep_query_weight <= 1.0 {
+        return Ok(());
+    }
+    let mut error = ValidationError::new("range");
+    error.message = Some(Cow::from(
+        "`keep_query_weight` must be greater than 0 and at most 1",
+    ));
+    Err(error)
 }
 
 /// Reject memory placements not supported by dense vector storage.

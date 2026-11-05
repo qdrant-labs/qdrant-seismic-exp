@@ -529,7 +529,7 @@ fn filter_by_point_ids(points: &[Vec<ScoredPoint>]) -> Filter {
 #[cfg(test)]
 mod tests {
     use segment::data_types::vectors::{NamedQuery, VectorInternal};
-    use segment::types::{Condition, WithPayloadInterface};
+    use segment::types::{Condition, SearchParams, WithPayloadInterface};
     use shard::query::query_enum::QueryEnum;
 
     use super::*;
@@ -611,6 +611,54 @@ mod tests {
             .collect();
 
         assert_eq!(ids, vec![2.into()]);
+    }
+
+    fn keep_query_weight_params(keep_query_weight: f32) -> SearchParams {
+        SearchParams {
+            keep_query_weight: Some(OrderedFloat(keep_query_weight)),
+            ..Default::default()
+        }
+    }
+
+    /// A `keep_query_weight` outside (0, 1] must be rejected at the top level and inside a prefetch, as
+    /// the server does.
+    #[test]
+    fn query_rejects_invalid_keep_query_weight() {
+        let dir = tempfile::tempdir().unwrap();
+        let shard = shard_with_points(&dir, 4);
+
+        for invalid in [0.0, -0.5, 1.5, f32::INFINITY, f32::NAN] {
+            let top_level = QueryRequestBuilder::new(2)
+                .query(nearest_query(1.0))
+                .params(keep_query_weight_params(invalid))
+                .build();
+            let prefetch = QueryRequestBuilder::new(2)
+                .query(nearest_query(1.0))
+                .prefetches(vec![
+                    PrefetchBuilder::new(2)
+                        .query(nearest_query(1.0))
+                        .params(keep_query_weight_params(invalid))
+                        .build(),
+                ])
+                .build();
+
+            for request in [top_level, prefetch] {
+                let error = shard.query(request).unwrap_err();
+                assert!(
+                    error.to_string().contains("keep_query_weight"),
+                    "{invalid}: {error}"
+                );
+            }
+        }
+
+        // A valid cut passes validation: it is a no-op on a dense query.
+        for valid in [0.5, 1.0] {
+            let request = QueryRequestBuilder::new(2)
+                .query(nearest_query(1.0))
+                .params(keep_query_weight_params(valid))
+                .build();
+            shard.query(request).unwrap();
+        }
     }
 
     #[test]

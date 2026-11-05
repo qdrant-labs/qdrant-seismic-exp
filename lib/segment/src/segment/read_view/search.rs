@@ -5,6 +5,7 @@ use common::bitvec::BitSliceExt as _;
 use common::generic_consts::Random;
 use common::iterator_ext::IteratorExt;
 use common::types::{DeferredBehavior, PointOffsetType, ScoredPointOffset};
+use ordered_float::OrderedFloat;
 use smallvec::SmallVec;
 
 use crate::common::operation_error::{OperationError, OperationResult};
@@ -429,7 +430,13 @@ where
         let idf_corpus = params
             .and_then(|params| params.idf.as_ref())
             .and_then(|idf| idf.corpus());
-        let vector_query_context = query_context.get_vector_context(vector_name, idf_corpus);
+        let vector_query_context = query_context
+            .get_vector_context(vector_name, idf_corpus)
+            .with_keep_query_weight(
+                params
+                    .and_then(|params| params.keep_query_weight)
+                    .map(OrderedFloat::into_inner),
+            );
         let internal_results = vector_data.vector_index().search(
             query_vectors,
             filter,

@@ -4,7 +4,7 @@ from pathlib import Path
 from qdrant_edge import (
     EdgeShard, EdgeConfig, EdgeVectorParams, EdgeSparseVectorParams,
     Distance, Modifier, Query, QueryRequest,
-    Point, SparseVector, UpdateOperation,
+    Point, SearchParams, SparseVector, UpdateOperation,
 )
 
 
@@ -39,3 +39,16 @@ sv = SparseVector(indices=[1, 2], values=[1.0, 0.5])
 r = shard.query(QueryRequest(limit=3, query=Query.Nearest(sv, using="sparse"), with_payload=True))
 print(f"Sparse: {len(r)} results")
 assert len(r) == 3, f"Sparse query should return 3 results, got {len(r)}"
+
+# Approximate sparse search: only the query dimensions with the largest absolute weights that
+# make up at least `keep_query_weight` of the total query weight are searched, so points that
+# match only the dropped dimensions are missed. Here dimension 1 has weight 1.0 of a total 1.5,
+# which is enough for `keep_query_weight=0.5`, so only points 1 and 3 (which have it) are found.
+r = shard.query(QueryRequest(
+    limit=3,
+    query=Query.Nearest(sv, using="sparse"),
+    params=SearchParams(keep_query_weight=0.5),
+    with_payload=True,
+))
+print(f"Sparse with keep_query_weight=0.5: {len(r)} results")
+assert {p.id for p in r} == {1, 3}, f"keep_query_weight=0.5 should only find points 1 and 3, got {[p.id for p in r]}"

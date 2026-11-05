@@ -6016,6 +6016,14 @@ pub struct SearchParams {
     #[prost(message, optional, tag = "6")]
     #[validate(nested)]
     pub idf: ::core::option::Option<IdfParams>,
+    /// Only applicable to sparse vectors.
+    /// Keep only the provided fraction of the total query weight. The shortened query is computed
+    /// by taking the dimensions with the largest absolute weight whose sum is equal to or greater
+    /// than the requested fraction of the total weight. This parameter enables approximate sparse
+    /// search (Qdrant's default is exact): use with caution.
+    #[prost(float, optional, tag = "7")]
+    #[validate(range(exclusive_min = 0.0, max = 1.0))]
+    pub keep_query_weight: ::core::option::Option<f32>,
 }
 #[derive(validator::Validate)]
 #[derive(serde::Serialize)]

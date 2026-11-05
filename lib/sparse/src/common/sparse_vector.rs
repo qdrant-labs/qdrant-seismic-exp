@@ -124,6 +124,52 @@ impl RemappedSparseVector {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Cut the vector to the dimensions with the largest absolute weights that together make up
+    /// at least `weight_to_keep` of the total absolute weight. The vector is then re-sorted by
+    /// indices.
+    ///
+    /// At least one dimension is always kept. The sums are computed in `f64`, so a fraction that
+    /// lands exactly on a boundary depends on how `weight_to_keep` rounds in `f32`.
+    pub fn cut(&mut self, weight_to_keep: f32) {
+        // weight_to_keep should be already validated by the API
+        // spec to make sure it is in (0, 1]
+        debug_assert!(weight_to_keep > 0.0 && weight_to_keep <= 1.0);
+        if weight_to_keep >= 1.0 {
+            return;
+        }
+        let total_weight: f64 = self.values.iter().map(|v| f64::from(v.abs())).sum();
+        if total_weight == 0.0 {
+            return;
+        }
+        let target_weight = f64::from(weight_to_keep) * total_weight;
+
+        // rank by (abs weight desc, index asc), so that ties are broken the same way every time
+        let mut ranked = (0..self.len()).collect::<Vec<usize>>();
+        ranked.sort_unstable_by(|&a, &b| {
+            self.values[b]
+                .abs()
+                .total_cmp(&self.values[a].abs())
+                .then_with(|| self.indices[a].cmp(&self.indices[b]))
+        });
+
+        // keep dimensions up to and including the one that reaches the target weight
+        let mut kept_weight = 0.0;
+        let keep = ranked
+            .iter()
+            .take_while(|&&i| {
+                let reached = kept_weight >= target_weight;
+                kept_weight += f64::from(self.values[i].abs());
+                !reached
+            })
+            .count()
+            .max(1);
+        ranked.truncate(keep);
+
+        self.indices = ranked.iter().map(|&i| self.indices[i]).collect();
+        self.values = ranked.iter().map(|&i| self.values[i]).collect();
+        self.sort_by_indices();
+    }
 }
 
 impl SparseVector {
@@ -327,6 +373,9 @@ pub fn validate_sparse_vector_impl<T: Clone + Eq + Hash>(
 
 #[cfg(test)]
 mod tests {
+    use rand::rngs::StdRng;
+    use rand::{RngExt, SeedableRng};
+
     use super::*;
 
     #[test]
@@ -408,5 +457,164 @@ mod tests {
         let sum = a.combine_aggregate(&b, |x, y| x + 2.0 * y);
         assert_eq!(sum.indices, vec![1, 2, 3, 4]);
         assert_eq!(sum.values, vec![0.1, 4.2, 6.3, 8.0]);
+    }
+
+    /// Hand-computed cases. The fractions are exact in `f32`, and the weights are small integers,
+    /// so no case lands on a rounding boundary by accident.
+    #[test]
+    fn cut_keeps_weight_fraction() {
+        // by index: -2, 4, 1, 3. By absolute weight: 4, 3, 2, 1. The total is 10.
+        let vector =
+            RemappedSparseVector::new(vec![0, 1, 2, 3], vec![-2.0, 4.0, 1.0, 3.0]).unwrap();
+
+        for (weight_to_keep, expected_indices) in [
+            (0.0001, vec![1]),        // at least one dimension is kept
+            (0.25, vec![1]),          // 4 >= 2.5
+            (0.5, vec![1, 3]),        // 4 < 5, 4 + 3 = 7 >= 5
+            (0.75, vec![0, 1, 3]),    // 7 < 7.5, 7 + 2 = 9 >= 7.5
+            (0.95, vec![0, 1, 2, 3]), // 9 < 9.5, 9 + 1 = 10 >= 9.5
+            (1.0, vec![0, 1, 2, 3]),  // everything
+        ] {
+            let mut cut = vector.clone();
+            cut.cut(weight_to_keep);
+            assert_eq!(
+                cut.indices, expected_indices,
+                "weight_to_keep = {weight_to_keep}"
+            );
+            let expected_values: Vec<DimWeight> = expected_indices
+                .iter()
+                .map(|&index| {
+                    vector.values[vector.indices.iter().position(|&i| i == index).unwrap()]
+                })
+                .collect();
+            assert_eq!(
+                cut.values, expected_values,
+                "weight_to_keep = {weight_to_keep}"
+            );
+        }
+    }
+
+    /// Dimensions with the same absolute weight are kept in index order, and a weight that is
+    /// exactly reached keeps no further dimension.
+    #[test]
+    fn cut_breaks_ties_by_index() {
+        let vector =
+            RemappedSparseVector::new(vec![0, 1, 2, 3], vec![1.0, -1.0, 1.0, -1.0]).unwrap();
+
+        let mut cut = vector.clone();
+        cut.cut(0.5);
+        assert_eq!(cut.indices, vec![0, 1]);
+        assert_eq!(cut.values, vec![1.0, -1.0]);
+
+        let mut cut = vector.clone();
+        cut.cut(0.75);
+        assert_eq!(cut.indices, vec![0, 1, 2]);
+    }
+
+    /// A vector without weight has nothing to rank, so it stays as it is.
+    #[test]
+    fn cut_leaves_zero_weight_vector() {
+        let vector = RemappedSparseVector::new(vec![1, 4], vec![0.0, 0.0]).unwrap();
+        let mut cut = vector.clone();
+        cut.cut(0.5);
+        assert_eq!(cut, vector);
+    }
+
+    /// Compare `cut` against a naive reference on random vectors, and check the defining
+    /// properties of the result.
+    ///
+    /// Weights are drawn from a small pool of magnitudes with random signs, so that ties
+    /// (including `+x` vs `-x`) are frequent, which the fixture's continuous values never produce.
+    /// The magnitudes are multiples of 0.5, so all sums are exact in `f64`.
+    #[test]
+    fn cut_matches_reference() {
+        const MAGNITUDES: [f32; 6] = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0];
+        const FRACTIONS: [f32; 8] = [0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1.0];
+
+        let mut rnd_gen = StdRng::seed_from_u64(42);
+
+        for _ in 0..500 {
+            let mut indices: Vec<DimOffset> =
+                (0..100).filter(|_| rnd_gen.random_bool(0.3)).collect();
+            if indices.is_empty() {
+                indices.push(rnd_gen.random_range(0..100));
+            }
+            let values: Vec<DimWeight> = indices
+                .iter()
+                .map(|_| {
+                    let magnitude = MAGNITUDES[rnd_gen.random_range(0..MAGNITUDES.len())];
+                    if rnd_gen.random_bool(0.5) {
+                        magnitude
+                    } else {
+                        -magnitude
+                    }
+                })
+                .collect();
+            let original = RemappedSparseVector::new(indices, values).unwrap();
+
+            // fixed fractions cover the boundaries, random ones the rest of (0, 1]
+            let weight_to_keep = if rnd_gen.random_bool(0.5) {
+                FRACTIONS[rnd_gen.random_range(0..FRACTIONS.len())]
+            } else {
+                rnd_gen.random_range(f32::EPSILON..=1.0)
+            };
+
+            // reference: rank by (abs weight desc, index asc), keep ranks until the weight is
+            // reached, restore index order
+            let mut ranked: Vec<(DimOffset, DimWeight)> = original
+                .indices
+                .iter()
+                .copied()
+                .zip(original.values.iter().copied())
+                .collect();
+            ranked.sort_by(|&(i1, v1), &(i2, v2)| {
+                v2.abs().total_cmp(&v1.abs()).then_with(|| i1.cmp(&i2))
+            });
+            let total: f64 = ranked.iter().map(|&(_, v)| f64::from(v.abs())).sum();
+            let target = f64::from(weight_to_keep) * total;
+            let mut kept_weight = 0.0;
+            let mut expected = Vec::new();
+            for &(index, value) in &ranked {
+                if kept_weight >= target && !expected.is_empty() {
+                    break;
+                }
+                kept_weight += f64::from(value.abs());
+                expected.push((index, value));
+            }
+            expected.sort_by_key(|&(index, _)| index);
+            let (expected_indices, expected_values): (Vec<_>, Vec<_>) =
+                expected.into_iter().unzip();
+
+            let mut cut = original.clone();
+            cut.cut(weight_to_keep);
+
+            let context = format!("weight_to_keep = {weight_to_keep}, input = {original:?}");
+            assert!(cut.is_sorted(), "cut result must stay sorted by index");
+            assert_eq!(cut.indices, expected_indices, "{context}");
+            assert_eq!(cut.values, expected_values, "{context}");
+
+            // the defining properties, independent of the reference
+            let weights: Vec<f64> = cut.values.iter().map(|v| f64::from(v.abs())).collect();
+            let result_weight: f64 = weights.iter().sum();
+            let smallest_kept = weights.iter().copied().fold(f64::INFINITY, f64::min);
+            assert!(result_weight >= target, "too little weight kept: {context}");
+            if cut.len() > 1 {
+                assert!(
+                    result_weight - smallest_kept < target,
+                    "a dimension could have been dropped: {context}"
+                );
+            }
+            let largest_dropped = original
+                .indices
+                .iter()
+                .zip(&original.values)
+                .filter(|(index, _)| !cut.indices.contains(index))
+                .map(|(_, value)| f64::from(value.abs()))
+                .fold(0.0, f64::max);
+            assert!(
+                smallest_kept >= largest_dropped,
+                "a heavier dimension was dropped: {context}"
+            );
+        }
     }
 }
