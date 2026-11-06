@@ -402,13 +402,13 @@ pub struct VectorQueryContext<'a> {
     deleted_points: Option<&'a BitSlice>,
 
     /// Sparse vectors only: search with the query dimensions of the largest absolute weight that
-    /// together make up at least this fraction, in `(0, 1]`, of the total absolute query weight.
-    /// `None` searches with the full query.
+    /// together make up at least this fraction, in `(0, 1]`, of the query mass (the sum of the
+    /// absolute query weights). `None` searches with the full query.
     query_mass: Option<f32>,
 }
 
 impl VectorQueryContext<'_> {
-    /// Set the fraction of the query weight to keep in sparse search.
+    /// Set the fraction of the query mass to keep in sparse search.
     #[must_use]
     pub fn with_query_mass(mut self, query_mass: Option<f32>) -> Self {
         self.query_mass = query_mass;

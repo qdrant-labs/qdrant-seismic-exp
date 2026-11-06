@@ -41,8 +41,8 @@ print(f"Sparse: {len(r)} results")
 assert len(r) == 3, f"Sparse query should return 3 results, got {len(r)}"
 
 # Approximate sparse search: only the query dimensions with the largest absolute weights that
-# make up at least `query_mass` of the total query weight are searched, so points that
-# match only the dropped dimensions are missed. Here dimension 1 has weight 1.0 of a total 1.5,
+# make up at least `query_mass` of the total query mass are searched, so points that
+# match only the dropped dimensions are missed. Here dimension 1 has weight 1.0 of a total mass of 1.5,
 # which is enough for `query_mass=0.5`, so only points 1 and 3 (which have it) are found.
 r = shard.query(QueryRequest(
     limit=3,

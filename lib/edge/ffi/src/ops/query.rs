@@ -96,11 +96,12 @@ pub struct SearchParams {
     /// payload fields. Rarely needed on mobile.
     #[uniffi(default = false)]
     pub indexed_only: bool,
-    /// Sparse vectors only. Keep only the provided fraction of the total query weight. The
-    /// shortened query is computed by taking the dimensions with the largest absolute weight
-    /// whose sum is equal to or greater than the requested fraction of the total weight. Must
-    /// be greater than 0 and at most 1. This parameter enables approximate sparse search
-    /// (Qdrant's default is exact): use with caution. `None` searches with the full query.
+    /// Sparse vectors only. Keep only the provided fraction of the query mass, i.e. the sum of
+    /// the absolute weights of all its dimensions. The shortened query is computed by taking the
+    /// dimensions with the largest absolute weight whose sum is equal to or greater than the
+    /// requested fraction of the total mass. Must be greater than 0 and at most 1. This parameter
+    /// enables approximate sparse search (Qdrant's default is exact): use with caution. `None`
+    /// searches with the full query.
     #[uniffi(default = None)]
     pub query_mass: Option<f32>,
 }

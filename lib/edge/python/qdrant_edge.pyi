@@ -2247,11 +2247,12 @@ class SearchParams:
             acorn: Acorn search parameters.
             idf: Population sparse IDF statistics are computed over.
             query_mass: Sparse vectors only. Keep only the provided fraction of
-                the total query weight. The shortened query is computed by taking the
-                dimensions with the largest absolute weight whose sum is equal to or
-                greater than the requested fraction of the total weight. Must be greater
-                than 0 and at most 1. This parameter enables approximate sparse search
-                (Qdrant's default is exact): use with caution.
+                the query mass, i.e. the sum of the absolute weights of all its
+                dimensions. The shortened query is computed by taking the dimensions
+                with the largest absolute weight whose sum is equal to or greater than
+                the requested fraction of the total mass. Must be greater than 0 and at
+                most 1. This parameter enables approximate sparse search (Qdrant's
+                default is exact): use with caution.
         """
         ...
 

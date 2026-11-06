@@ -717,10 +717,11 @@ pub struct SearchParams {
     pub idf: Option<IdfParams>,
 
     /// Only applicable to sparse vectors.
-    /// Keep only the provided fraction of the total query weight. The shortened query is computed
-    /// by taking the dimensions with the largest absolute weight whose sum is equal to or greater
-    /// than the requested fraction of the total weight. This parameter enables approximate sparse
-    /// search (Qdrant's default is exact): use with caution.
+    /// Keep only the provided fraction of the query mass, i.e. the sum of the absolute weights of all
+    /// its dimensions. The shortened query is computed by taking the dimensions with the largest
+    /// absolute weight whose sum is equal to or greater than the requested fraction of the total mass.
+    /// This parameter enables approximate sparse search (Qdrant's default is exact): use with
+    /// caution.
     #[serde(default)]
     #[validate(custom(function = "validate_query_mass"))]
     #[serde(skip_serializing_if = "Option::is_none")]
