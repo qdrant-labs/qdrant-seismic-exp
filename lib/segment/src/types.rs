@@ -715,6 +715,17 @@ pub struct SearchParams {
     #[validate(nested)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idf: Option<IdfParams>,
+
+    /// Only applicable to sparse vectors.
+    /// Keep only the provided fraction of the query mass, i.e. the sum of the absolute weights of all
+    /// its dimensions. The shortened query is computed by taking the dimensions with the largest
+    /// absolute weight whose sum is equal to or greater than the requested fraction of the total mass.
+    /// This parameter enables approximate sparse search (Qdrant's default is exact): use with
+    /// caution.
+    #[serde(default)]
+    #[validate(custom(function = "validate_query_mass"))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_mass: Option<OrderedFloat<f32>>,
 }
 
 /// Population over which IDF statistics are computed for scoring — the *IDF
@@ -788,6 +799,19 @@ pub struct VectorsConfigDefaults {
     #[serde(default)]
     #[validate(custom(function = "validate_dense_vector_memory"))]
     pub memory: Option<Memory>,
+}
+
+/// `query_mass` is a fraction of the query weight: greater than 0, at most 1. NaN is rejected too.
+pub fn validate_query_mass(query_mass: &OrderedFloat<f32>) -> Result<(), ValidationError> {
+    let query_mass = query_mass.into_inner();
+    if query_mass > 0.0 && query_mass <= 1.0 {
+        return Ok(());
+    }
+    let mut error = ValidationError::new("range");
+    error.message = Some(Cow::from(
+        "`query_mass` must be greater than 0 and at most 1",
+    ));
+    Err(error)
 }
 
 /// Reject memory placements not supported by dense vector storage.

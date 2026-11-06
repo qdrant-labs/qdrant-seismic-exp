@@ -352,6 +352,7 @@ impl<'a> SegmentQueryContext<'a> {
                 .and_then(|scope| scope.indexed_vectors.get(vector_name))
                 .copied(),
             deleted_points: self.deleted_points,
+            query_mass: None,
         }
     }
 
@@ -399,9 +400,25 @@ pub struct VectorQueryContext<'a> {
     indexed_vectors: Option<usize>,
 
     deleted_points: Option<&'a BitSlice>,
+
+    /// Sparse vectors only: search with the query dimensions of the largest absolute weight that
+    /// together make up at least this fraction, in `(0, 1]`, of the query mass (the sum of the
+    /// absolute query weights). `None` searches with the full query.
+    query_mass: Option<f32>,
 }
 
 impl VectorQueryContext<'_> {
+    /// Set the fraction of the query mass to keep in sparse search.
+    #[must_use]
+    pub fn with_query_mass(mut self, query_mass: Option<f32>) -> Self {
+        self.query_mass = query_mass;
+        self
+    }
+
+    pub fn query_mass(&self) -> Option<f32> {
+        self.query_mass
+    }
+
     pub fn search_optimized_threshold_kb(&self) -> usize {
         self.search_optimized_threshold_kb
     }
@@ -449,6 +466,7 @@ impl Default for VectorQueryContext<'_> {
             idf: None,
             indexed_vectors: None,
             deleted_points: None,
+            query_mass: None,
         }
     }
 }

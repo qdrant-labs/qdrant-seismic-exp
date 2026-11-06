@@ -96,6 +96,14 @@ pub struct SearchParams {
     /// payload fields. Rarely needed on mobile.
     #[uniffi(default = false)]
     pub indexed_only: bool,
+    /// Sparse vectors only. Keep only the provided fraction of the query mass, i.e. the sum of
+    /// the absolute weights of all its dimensions. The shortened query is computed by taking the
+    /// dimensions with the largest absolute weight whose sum is equal to or greater than the
+    /// requested fraction of the total mass. Must be greater than 0 and at most 1. This parameter
+    /// enables approximate sparse search (Qdrant's default is exact): use with caution. `None`
+    /// searches with the full query.
+    #[uniffi(default = None)]
+    pub query_mass: Option<f32>,
 }
 
 impl From<SearchParams> for SegmentSearchParams {
@@ -104,6 +112,7 @@ impl From<SearchParams> for SegmentSearchParams {
             hnsw_ef,
             exact,
             indexed_only,
+            query_mass,
         } = p;
         SegmentSearchParams {
             hnsw_ef: hnsw_ef.map(crate::error::clamp_usize),
@@ -112,6 +121,7 @@ impl From<SearchParams> for SegmentSearchParams {
             indexed_only,
             acorn: None,
             idf: None,
+            query_mass: query_mass.map(ordered_float::OrderedFloat),
         }
     }
 }
