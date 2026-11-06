@@ -723,7 +723,7 @@ pub struct SearchParams {
     #[serde(default)]
     #[validate(range(min = 1))]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub keep_query_dims: Option<usize>,
+    pub query_dims: Option<usize>,
 }
 
 /// Population over which IDF statistics are computed for scoring — the *IDF

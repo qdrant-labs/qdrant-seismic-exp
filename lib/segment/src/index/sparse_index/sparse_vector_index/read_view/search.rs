@@ -175,8 +175,8 @@ where
         .collect_vec();
 
         let mut sparse_vector = self.indices_tracker.remap_vector(sparse_vector.clone());
-        if let Some(keep_query_dims) = vector_query_context.keep_query_dims() {
-            sparse_vector.cut(keep_query_dims);
+        if let Some(query_dims) = vector_query_context.query_dims() {
+            sparse_vector.cut(query_dims);
         }
         let mut scratch = self.search_scratch_pool.get();
         let mut search_context = SearchContext::new(
@@ -210,8 +210,8 @@ where
         let is_stopped = vector_query_context.is_stopped();
 
         let mut sparse_vector = self.indices_tracker.remap_vector(sparse_vector.clone());
-        if let Some(keep_query_dims) = vector_query_context.keep_query_dims() {
-            sparse_vector.cut(keep_query_dims);
+        if let Some(query_dims) = vector_query_context.query_dims() {
+            sparse_vector.cut(query_dims);
         }
         let mut scratch = self.search_scratch_pool.get();
         let mut search_context = SearchContext::new(

@@ -85,13 +85,13 @@ fn search(
     segment: &Segment,
     query: &SparseVector,
     filter: Option<&Filter>,
-    keep_query_dims: Option<usize>,
+    query_dims: Option<usize>,
 ) -> Scores {
     let query_context = QueryContext::default();
     let segment_query_context = query_context.get_segment_query_context();
     let query_vector = QueryVector::from(query.clone());
     let params = SearchParams {
-        keep_query_dims,
+        query_dims,
         ..Default::default()
     };
 
@@ -135,11 +135,11 @@ fn assert_scores(actual: &Scores, expected: &[(u64, f32)], context: &str) {
     }
 }
 
-/// Check `keep_query_dims` through both sparse search paths: the inverted index (no filter) and the
+/// Check `query_dims` through both sparse search paths: the inverted index (no filter) and the
 /// plain scan (a filter matching so few points that the cardinality is below the full-scan
 /// threshold).
 #[test]
-fn sparse_keep_query_dims() {
+fn sparse_query_dims() {
     let dir = Builder::new().prefix("segment_dir").tempdir().unwrap();
     let segment = build_test_segment(dir.path());
 
@@ -149,8 +149,8 @@ fn sparse_keep_query_dims() {
     )));
 
     for (path, filter) in [("inverted index", None), ("plain", Some(&tenant_a))] {
-        let check = |query: &SparseVector, keep_query_dims, expected: &[(u64, f32)], what: &str| {
-            let actual = search(&segment, query, filter, keep_query_dims);
+        let check = |query: &SparseVector, query_dims, expected: &[(u64, f32)], what: &str| {
+            let actual = search(&segment, query, filter, query_dims);
             assert_scores(&actual, expected, &format!("{path}, {what}"));
         };
 
@@ -187,15 +187,15 @@ fn sparse_keep_query_dims() {
     }
 }
 
-/// The REST name of the parameter is `keep_query_dims`, and its validation error uses it too.
+/// The REST name of the parameter is `query_dims`, and its validation error uses it too.
 #[test]
-fn keep_query_dims_rest_name() {
-    let params: SearchParams = serde_json::from_str(r#"{"keep_query_dims": 2}"#).unwrap();
-    assert_eq!(params.keep_query_dims, Some(2));
-    assert_eq!(serde_json::to_value(&params).unwrap()["keep_query_dims"], 2);
+fn query_dims_rest_name() {
+    let params: SearchParams = serde_json::from_str(r#"{"query_dims": 2}"#).unwrap();
+    assert_eq!(params.query_dims, Some(2));
+    assert_eq!(serde_json::to_value(&params).unwrap()["query_dims"], 2);
     assert!(params.validate().is_ok());
 
-    let invalid: SearchParams = serde_json::from_str(r#"{"keep_query_dims": 0}"#).unwrap();
+    let invalid: SearchParams = serde_json::from_str(r#"{"query_dims": 0}"#).unwrap();
     let message = invalid.validate().unwrap_err().to_string();
-    assert!(message.contains("keep_query_dims"), "{message}");
+    assert!(message.contains("query_dims"), "{message}");
 }

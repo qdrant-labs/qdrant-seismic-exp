@@ -6022,7 +6022,7 @@ pub struct SearchParams {
     /// default is exact): use with caution.
     #[prost(uint64, optional, tag = "7")]
     #[validate(range(min = 1))]
-    pub keep_query_dims: ::core::option::Option<u64>,
+    pub query_dims: ::core::option::Option<u64>,
 }
 #[derive(validator::Validate)]
 #[derive(serde::Serialize)]

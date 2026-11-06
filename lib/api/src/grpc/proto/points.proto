@@ -534,7 +534,7 @@ message SearchParams {
   // Keep only the provided number of dimensions from the query. Dimensions are selected by
   // largest absolute weight. This parameter enables approximate sparse search (Qdrant's
   // default is exact): use with caution.
-  optional uint64 keep_query_dims = 7;
+  optional uint64 query_dims = 7;
 }
 
 message SearchPoints {
