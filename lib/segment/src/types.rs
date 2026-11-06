@@ -722,9 +722,9 @@ pub struct SearchParams {
     /// than the requested fraction of the total weight. This parameter enables approximate sparse
     /// search (Qdrant's default is exact): use with caution.
     #[serde(default)]
-    #[validate(custom(function = "validate_keep_query_weight"))]
+    #[validate(custom(function = "validate_query_mass"))]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub keep_query_weight: Option<OrderedFloat<f32>>,
+    pub query_mass: Option<OrderedFloat<f32>>,
 }
 
 /// Population over which IDF statistics are computed for scoring — the *IDF
@@ -800,17 +800,15 @@ pub struct VectorsConfigDefaults {
     pub memory: Option<Memory>,
 }
 
-/// `keep_query_weight` is a fraction of the query weight: greater than 0, at most 1. NaN is rejected too.
-pub fn validate_keep_query_weight(
-    keep_query_weight: &OrderedFloat<f32>,
-) -> Result<(), ValidationError> {
-    let keep_query_weight = keep_query_weight.into_inner();
-    if keep_query_weight > 0.0 && keep_query_weight <= 1.0 {
+/// `query_mass` is a fraction of the query weight: greater than 0, at most 1. NaN is rejected too.
+pub fn validate_query_mass(query_mass: &OrderedFloat<f32>) -> Result<(), ValidationError> {
+    let query_mass = query_mass.into_inner();
+    if query_mass > 0.0 && query_mass <= 1.0 {
         return Ok(());
     }
     let mut error = ValidationError::new("range");
     error.message = Some(Cow::from(
-        "`keep_query_weight` must be greater than 0 and at most 1",
+        "`query_mass` must be greater than 0 and at most 1",
     ));
     Err(error)
 }

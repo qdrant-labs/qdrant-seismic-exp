@@ -2234,7 +2234,7 @@ class SearchParams:
         indexed_only: bool = False,
         acorn: Optional["AcornSearchParams"] = None,
         idf: Optional["IdfParams"] = None,
-        keep_query_weight: Optional[float] = None,
+        query_mass: Optional[float] = None,
     ) -> None:
         """
         Create SearchParams.
@@ -2246,7 +2246,7 @@ class SearchParams:
             indexed_only: Whether to search only indexed vectors.
             acorn: Acorn search parameters.
             idf: Population sparse IDF statistics are computed over.
-            keep_query_weight: Sparse vectors only. Keep only the provided fraction of
+            query_mass: Sparse vectors only. Keep only the provided fraction of
                 the total query weight. The shortened query is computed by taking the
                 dimensions with the largest absolute weight whose sum is equal to or
                 greater than the requested fraction of the total weight. Must be greater
@@ -2286,7 +2286,7 @@ class SearchParams:
         ...
 
     @property
-    def keep_query_weight(self) -> Optional[float]:
+    def query_mass(self) -> Optional[float]:
         """Fraction of the query weight kept in sparse search."""
         ...
 

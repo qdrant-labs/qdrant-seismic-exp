@@ -1108,7 +1108,7 @@ impl TryFrom<SearchParams> for segment::types::SearchParams {
             indexed_only,
             acorn,
             idf,
-            keep_query_weight,
+            query_mass,
         } = params;
         Ok(Self {
             hnsw_ef: hnsw_ef.map(|x| x as usize),
@@ -1117,7 +1117,7 @@ impl TryFrom<SearchParams> for segment::types::SearchParams {
             indexed_only: indexed_only.unwrap_or(false),
             acorn: acorn.map(segment::types::AcornSearchParams::from),
             idf: idf.map(segment::types::IdfParams::try_from).transpose()?,
-            keep_query_weight: keep_query_weight.map(OrderedFloat),
+            query_mass: query_mass.map(OrderedFloat),
         })
     }
 }
@@ -1131,7 +1131,7 @@ impl From<segment::types::SearchParams> for SearchParams {
             indexed_only,
             acorn,
             idf,
-            keep_query_weight,
+            query_mass,
         } = params;
         Self {
             hnsw_ef: hnsw_ef.map(|x| x as u64),
@@ -1140,7 +1140,7 @@ impl From<segment::types::SearchParams> for SearchParams {
             indexed_only: Some(indexed_only),
             acorn: acorn.map(AcornSearchParams::from),
             idf: idf.map(IdfParams::from),
-            keep_query_weight: keep_query_weight.map(OrderedFloat::into_inner),
+            query_mass: query_mass.map(OrderedFloat::into_inner),
         }
     }
 }

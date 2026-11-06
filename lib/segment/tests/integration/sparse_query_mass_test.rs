@@ -86,13 +86,13 @@ fn search(
     segment: &Segment,
     query: &SparseVector,
     filter: Option<&Filter>,
-    keep_query_weight: Option<f32>,
+    query_mass: Option<f32>,
 ) -> Scores {
     let query_context = QueryContext::default();
     let segment_query_context = query_context.get_segment_query_context();
     let query_vector = QueryVector::from(query.clone());
     let params = SearchParams {
-        keep_query_weight: keep_query_weight.map(OrderedFloat),
+        query_mass: query_mass.map(OrderedFloat),
         ..Default::default()
     };
 
@@ -136,11 +136,11 @@ fn assert_scores(actual: &Scores, expected: &[(u64, f32)], context: &str) {
     }
 }
 
-/// Check `keep_query_weight` through both sparse search paths: the inverted index (no filter) and the
+/// Check `query_mass` through both sparse search paths: the inverted index (no filter) and the
 /// plain scan (a filter matching so few points that the cardinality is below the full-scan
 /// threshold).
 #[test]
-fn sparse_keep_query_weight() {
+fn sparse_query_mass() {
     let dir = Builder::new().prefix("segment_dir").tempdir().unwrap();
     let segment = build_test_segment(dir.path());
 
@@ -150,11 +150,10 @@ fn sparse_keep_query_weight() {
     )));
 
     for (path, filter) in [("inverted index", None), ("plain", Some(&tenant_a))] {
-        let check =
-            |query: &SparseVector, keep_query_weight, expected: &[(u64, f32)], what: &str| {
-                let actual = search(&segment, query, filter, keep_query_weight);
-                assert_scores(&actual, expected, &format!("{path}, {what}"));
-            };
+        let check = |query: &SparseVector, query_mass, expected: &[(u64, f32)], what: &str| {
+            let actual = search(&segment, query, filter, query_mass);
+            assert_scores(&actual, expected, &format!("{path}, {what}"));
+        };
 
         // Dim 1 has the largest weight (5.0), then dim 2 (1.0), then dim 0 (0.5). The total is 6.5,
         // so dim 1 alone makes up 77%, and dims 1 and 2 together 92%.
@@ -195,11 +194,11 @@ fn sparse_keep_query_weight() {
     }
 }
 
-/// `keep_query_weight` is a fraction of the query weight: greater than 0 and at most 1.
+/// `query_mass` is a fraction of the query weight: greater than 0 and at most 1.
 #[test]
-fn keep_query_weight_validation() {
-    let params = |keep_query_weight: f32| SearchParams {
-        keep_query_weight: Some(OrderedFloat(keep_query_weight)),
+fn query_mass_validation() {
+    let params = |query_mass: f32| SearchParams {
+        query_mass: Some(OrderedFloat(query_mass)),
         ..Default::default()
     };
 
@@ -224,18 +223,15 @@ fn keep_query_weight_validation() {
     assert!(SearchParams::default().validate().is_ok());
 }
 
-/// The REST name of the parameter is `keep_query_weight`, and its error message uses it too.
+/// The REST name of the parameter is `query_mass`, and its error message uses it too.
 #[test]
-fn keep_query_weight_rest_name() {
-    let params: SearchParams = serde_json::from_str(r#"{"keep_query_weight": 0.5}"#).unwrap();
-    assert_eq!(params.keep_query_weight, Some(OrderedFloat(0.5)));
-    assert_eq!(
-        serde_json::to_value(&params).unwrap()["keep_query_weight"],
-        0.5
-    );
+fn query_mass_rest_name() {
+    let params: SearchParams = serde_json::from_str(r#"{"query_mass": 0.5}"#).unwrap();
+    assert_eq!(params.query_mass, Some(OrderedFloat(0.5)));
+    assert_eq!(serde_json::to_value(&params).unwrap()["query_mass"], 0.5);
     assert!(params.validate().is_ok());
 
-    let invalid: SearchParams = serde_json::from_str(r#"{"keep_query_weight": 0.0}"#).unwrap();
+    let invalid: SearchParams = serde_json::from_str(r#"{"query_mass": 0.0}"#).unwrap();
     let message = invalid.validate().unwrap_err().to_string();
-    assert!(message.contains("keep_query_weight"), "{message}");
+    assert!(message.contains("query_mass"), "{message}");
 }

@@ -125,7 +125,7 @@ impl PySearchParams {
         indexed_only = false,
         acorn = None,
         idf = None,
-        keep_query_weight = None,
+        query_mass = None,
     ))]
     pub fn new(
         hnsw_ef: Option<usize>,
@@ -134,7 +134,7 @@ impl PySearchParams {
         indexed_only: bool,
         acorn: Option<PyAcornSearchParams>,
         idf: Option<PyIdfParams>,
-        keep_query_weight: Option<f32>,
+        query_mass: Option<f32>,
     ) -> Self {
         Self(SearchParams {
             hnsw_ef,
@@ -143,7 +143,7 @@ impl PySearchParams {
             indexed_only,
             acorn: acorn.map(AcornSearchParams::from),
             idf: idf.map(IdfParams::from),
-            keep_query_weight: keep_query_weight.map(OrderedFloat),
+            query_mass: query_mass.map(OrderedFloat),
         })
     }
 
@@ -178,8 +178,8 @@ impl PySearchParams {
     }
 
     #[getter]
-    pub fn keep_query_weight(&self) -> Option<f32> {
-        self.0.keep_query_weight.map(OrderedFloat::into_inner)
+    pub fn query_mass(&self) -> Option<f32> {
+        self.0.query_mass.map(OrderedFloat::into_inner)
     }
 
     pub fn __repr__(&self) -> String {
@@ -197,7 +197,7 @@ impl PySearchParams {
             indexed_only: _,
             acorn: _,
             idf: _,
-            keep_query_weight: _,
+            query_mass: _,
         } = self.0;
     }
 }

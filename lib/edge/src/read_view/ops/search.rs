@@ -6,9 +6,7 @@ use segment::common::operation_error::{OperationError, OperationResult};
 use segment::data_types::modifier::Modifier;
 use segment::data_types::query_context::QueryContext;
 use segment::entry::ReadSegmentEntry;
-use segment::types::{
-    DEFAULT_FULL_SCAN_THRESHOLD, Distance, ScoredPoint, validate_keep_query_weight,
-};
+use segment::types::{DEFAULT_FULL_SCAN_THRESHOLD, Distance, ScoredPoint, validate_query_mass};
 use shard::query::query_context::init_query_context_with_stopping_flag;
 use shard::query::query_enum::QueryEnum;
 use shard::search::{CoreSearchRequest, group_search_batches};
@@ -52,16 +50,13 @@ impl<H: ReadSegmentHandle> EdgeReadView<H> {
             return Ok(Vec::new());
         }
 
-        // The server rejects an invalid `keep_query_weight` when it parses the request. Without the check,
+        // The server rejects an invalid `query_mass` when it parses the request. Without the check,
         // `0` would trip a debug assertion in debug builds, and a value above 1 or NaN would give
         // wrong results.
         for search in searches {
-            let keep_query_weight = search
-                .params
-                .as_ref()
-                .and_then(|params| params.keep_query_weight);
-            if let Some(keep_query_weight) = keep_query_weight {
-                validate_keep_query_weight(&keep_query_weight)
+            let query_mass = search.params.as_ref().and_then(|params| params.query_mass);
+            if let Some(query_mass) = query_mass {
+                validate_query_mass(&query_mass)
                     .map_err(|error| OperationError::validation_error(error.to_string()))?;
             }
         }

@@ -535,7 +535,7 @@ message SearchParams {
   // by taking the dimensions with the largest absolute weight whose sum is equal to or greater
   // than the requested fraction of the total weight. This parameter enables approximate sparse
   // search (Qdrant's default is exact): use with caution.
-  optional float keep_query_weight = 7;
+  optional float query_mass = 7;
 }
 
 message SearchPoints {

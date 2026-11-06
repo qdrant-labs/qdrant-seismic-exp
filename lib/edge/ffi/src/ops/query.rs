@@ -102,7 +102,7 @@ pub struct SearchParams {
     /// be greater than 0 and at most 1. This parameter enables approximate sparse search
     /// (Qdrant's default is exact): use with caution. `None` searches with the full query.
     #[uniffi(default = None)]
-    pub keep_query_weight: Option<f32>,
+    pub query_mass: Option<f32>,
 }
 
 impl From<SearchParams> for SegmentSearchParams {
@@ -111,7 +111,7 @@ impl From<SearchParams> for SegmentSearchParams {
             hnsw_ef,
             exact,
             indexed_only,
-            keep_query_weight,
+            query_mass,
         } = p;
         SegmentSearchParams {
             hnsw_ef: hnsw_ef.map(crate::error::clamp_usize),
@@ -120,7 +120,7 @@ impl From<SearchParams> for SegmentSearchParams {
             indexed_only,
             acorn: None,
             idf: None,
-            keep_query_weight: keep_query_weight.map(ordered_float::OrderedFloat),
+            query_mass: query_mass.map(ordered_float::OrderedFloat),
         }
     }
 }

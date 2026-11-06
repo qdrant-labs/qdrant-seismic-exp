@@ -6023,7 +6023,7 @@ pub struct SearchParams {
     /// search (Qdrant's default is exact): use with caution.
     #[prost(float, optional, tag = "7")]
     #[validate(range(exclusive_min = 0.0, max = 1.0))]
-    pub keep_query_weight: ::core::option::Option<f32>,
+    pub query_mass: ::core::option::Option<f32>,
 }
 #[derive(validator::Validate)]
 #[derive(serde::Serialize)]

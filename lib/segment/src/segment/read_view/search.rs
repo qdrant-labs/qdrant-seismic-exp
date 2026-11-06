@@ -432,9 +432,9 @@ where
             .and_then(|idf| idf.corpus());
         let vector_query_context = query_context
             .get_vector_context(vector_name, idf_corpus)
-            .with_keep_query_weight(
+            .with_query_mass(
                 params
-                    .and_then(|params| params.keep_query_weight)
+                    .and_then(|params| params.query_mass)
                     .map(OrderedFloat::into_inner),
             );
         let internal_results = vector_data.vector_index().search(
