@@ -344,33 +344,56 @@ pub async fn do_upsert_points(
         )
         .await?;
 
-    let (operation, shard_key, usage, update_filter, update_mode) = match operation {
-        PointInsertOperations::PointsBatch(batch) => {
-            let PointsBatch {
-                batch,
-                shard_key,
-                update_filter,
-                update_mode,
-            } = batch;
-            let (batch, usage) = convert_batch(batch, inference_params).await?;
-            let operation = PointInsertOperationsInternal::PointsBatch(batch);
-            let update_mode = update_mode.map(rest_update_mode_to_internal);
-            (operation, shard_key, usage, update_filter, update_mode)
-        }
-        PointInsertOperations::PointsList(list) => {
-            let PointsList {
-                points,
-                shard_key,
-                update_filter,
-                update_mode,
-            } = list;
-            let (list, usage) =
-                convert_point_struct(points, InferenceType::Update, inference_params).await?;
-            let operation = PointInsertOperationsInternal::PointsList(list);
-            let update_mode = update_mode.map(rest_update_mode_to_internal);
-            (operation, shard_key, usage, update_filter, update_mode)
-        }
-    };
+    let (mut operation, shard_key, usage, update_filter, update_mode, document_mass) =
+        match operation {
+            PointInsertOperations::PointsBatch(batch) => {
+                let PointsBatch {
+                    batch,
+                    shard_key,
+                    update_filter,
+                    update_mode,
+                    document_mass,
+                } = batch;
+                let (batch, usage) = convert_batch(batch, inference_params).await?;
+                let operation = PointInsertOperationsInternal::PointsBatch(batch);
+                let update_mode = update_mode.map(rest_update_mode_to_internal);
+                (
+                    operation,
+                    shard_key,
+                    usage,
+                    update_filter,
+                    update_mode,
+                    document_mass,
+                )
+            }
+            PointInsertOperations::PointsList(list) => {
+                let PointsList {
+                    points,
+                    shard_key,
+                    update_filter,
+                    update_mode,
+                    document_mass,
+                } = list;
+                let (list, usage) =
+                    convert_point_struct(points, InferenceType::Update, inference_params).await?;
+                let operation = PointInsertOperationsInternal::PointsList(list);
+                let update_mode = update_mode.map(rest_update_mode_to_internal);
+                (
+                    operation,
+                    shard_key,
+                    usage,
+                    update_filter,
+                    update_mode,
+                    document_mass,
+                )
+            }
+        };
+
+    // Prune sparse vectors before anything is persisted, so the WAL, the segments and the
+    // sparse index only ever see the pruned documents.
+    if let Some(document_mass) = document_mass {
+        operation.cut_sparse_vectors(document_mass);
+    }
 
     // Validate vector dimensions early, before writing to WAL.
     // This ensures that dimension mismatches are reported even for async (wait=false) operations,

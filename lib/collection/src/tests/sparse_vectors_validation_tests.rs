@@ -71,6 +71,7 @@ fn validate_error_sparse_vector_points_list() {
         shard_key: None,
         update_filter: None,
         update_mode: None,
+        document_mass: None,
     });
 }
 

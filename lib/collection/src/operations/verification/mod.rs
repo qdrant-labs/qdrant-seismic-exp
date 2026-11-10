@@ -696,6 +696,7 @@ mod test {
             shard_key: None,
             update_filter: None,
             update_mode: None,
+            document_mass: None,
         });
         assert!(insert.consumes_memory());
 
@@ -745,6 +746,7 @@ mod test {
             shard_key: None,
             update_filter: None,
             update_mode: None,
+            document_mass: None,
         });
         assert_strict_mode_error(request, collection).await;
 
@@ -760,6 +762,7 @@ mod test {
             shard_key: None,
             update_filter: None,
             update_mode: None,
+            document_mass: None,
         });
         assert_strict_mode_success(request, collection).await;
     }

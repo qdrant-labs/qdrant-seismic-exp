@@ -130,7 +130,8 @@ pub fn internal_upsert_points(
             shard_key_selector: None,
             update_filter: None,
             timeout: wait_timeout,
-            update_mode: None, // Default mode (Upsert)
+            update_mode: None,   // Default mode (Upsert)
+            document_mass: None, // already applied at the API entry point
         }),
     })
 }
@@ -161,7 +162,8 @@ pub fn internal_upsert_points_raw(
             shard_key_selector: None,
             update_filter: None,
             timeout: wait_timeout,
-            update_mode: None, // Default mode (Upsert)
+            update_mode: None,   // Default mode (Upsert)
+            document_mass: None, // already applied at the API entry point
         }),
     })
 }
@@ -209,6 +211,7 @@ pub fn internal_conditional_upsert_points(
             update_filter: Some(api::grpc::Filter::from(condition)),
             timeout: wait_timeout,
             update_mode: grpc_update_mode,
+            document_mass: None, // already applied at the API entry point
         }),
     })
 }

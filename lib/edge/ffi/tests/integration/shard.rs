@@ -72,7 +72,8 @@ fn upsert_three(shard: &EdgeShard) {
             payload: Some(r#"{"title":"point three"}"#.to_string()),
         },
     ];
-    let op = UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed");
+    let op =
+        UpdateOperation::upsert_points(points, None, None, None).expect("upsert_points failed");
     shard.update(op).expect("shard.update failed");
 }
 
@@ -199,6 +200,7 @@ fn payload_round_trips_through_ffi() {
         }],
         None,
         None,
+        None,
     )
     .expect("upsert_points failed");
     shard.update(op).expect("update failed");
@@ -299,6 +301,7 @@ fn retrieve_missing_ids_omitted() {
                 payload: None,
             },
         ],
+        None,
         None,
         None,
     )
@@ -1066,7 +1069,9 @@ fn scroll_pagination_via_next_offset() {
         })
         .collect();
     shard
-        .update(UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed"))
+        .update(
+            UpdateOperation::upsert_points(points, None, None, None).expect("upsert_points failed"),
+        )
         .expect("update failed");
 
     let page_size = 2u64;
@@ -1259,6 +1264,7 @@ fn assert_vector_rejected(vector: Vector) {
         }],
         None,
         None,
+        None,
     )
     .err()
     .expect("invalid vector must be rejected by the upsert_points constructor");
@@ -1362,6 +1368,40 @@ fn non_finite_vector_components_rejected() {
     });
 }
 
+#[test]
+fn document_mass_out_of_range_rejected() {
+    use qdrant_edge_ffi::types::{NamedVector, SparseVector};
+
+    let point = || Point {
+        id: PointId::NumId { value: 1 },
+        vector: Vector::Named {
+            map: HashMap::from([(
+                "sp".to_string(),
+                NamedVector::Sparse {
+                    vector: SparseVector {
+                        indices: vec![0, 1],
+                        values: vec![1.0, 2.0],
+                    },
+                },
+            )]),
+        },
+        payload: None,
+    };
+    for bad in [0.0, -0.5, 1.5, f32::NAN] {
+        let err = UpdateOperation::upsert_points(vec![point()], None, None, Some(bad))
+            .err()
+            .expect("out-of-range document_mass must be rejected");
+        assert!(
+            matches!(err, EdgeError::InvalidArgument { .. }),
+            "expected InvalidArgument for {bad}, got {err:?}"
+        );
+    }
+    for good in [0.5, 1.0] {
+        UpdateOperation::upsert_points(vec![point()], None, None, Some(good))
+            .expect("document_mass in (0, 1] must be accepted");
+    }
+}
+
 // ── Test 21: finite_vectors_accepted_by_upsert_constructor (MUST B guard) ─────
 
 /// Over-rejection guard: valid finite vectors (single, multi, named dense) must
@@ -1378,6 +1418,7 @@ fn finite_vectors_accepted_by_upsert_constructor() {
                 payload: None,
             }],
             None,
+            None,
             None
         )
         .is_ok(),
@@ -1393,6 +1434,7 @@ fn finite_vectors_accepted_by_upsert_constructor() {
                 payload: None,
             }],
             None,
+            None,
             None
         )
         .is_ok(),
@@ -1405,6 +1447,7 @@ fn finite_vectors_accepted_by_upsert_constructor() {
                 vector: named_vec([0.1, 0.2, 0.3, 0.4]),
                 payload: None,
             }],
+            None,
             None,
             None
         )
@@ -1519,7 +1562,9 @@ fn filter_restricts_count_scroll_and_search() {
         },
     ];
     shard
-        .update(UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed"))
+        .update(
+            UpdateOperation::upsert_points(points, None, None, None).expect("upsert_points failed"),
+        )
         .expect("update failed");
 
     // count: exactly the two "a" points.
@@ -1624,6 +1669,7 @@ fn flush_under_concurrent_upserts() {
                     }],
                     None,
                     None,
+                    None,
                 )
                 .expect("upsert_points failed");
                 if shard.update(op).is_ok() {
@@ -1679,6 +1725,7 @@ fn vector_content_round_trips_through_retrieve_and_search() {
                     vector: named_vec(input),
                     payload: None,
                 }],
+                None,
                 None,
                 None,
             )
@@ -1762,7 +1809,9 @@ fn cosine_distance_ranks_by_direction() {
         },
     ];
     shard
-        .update(UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed"))
+        .update(
+            UpdateOperation::upsert_points(points, None, None, None).expect("upsert_points failed"),
+        )
         .expect("update failed");
 
     let hits = shard
@@ -1838,7 +1887,8 @@ fn euclid_and_manhattan_rank_nearest_first() {
         ];
         shard
             .update(
-                UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed"),
+                UpdateOperation::upsert_points(points, None, None, None)
+                    .expect("upsert_points failed"),
             )
             .expect("update failed");
 
@@ -1907,7 +1957,8 @@ fn delete_points_by_filter_persists() {
         ];
         shard
             .update(
-                UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed"),
+                UpdateOperation::upsert_points(points, None, None, None)
+                    .expect("upsert_points failed"),
             )
             .expect("update failed");
         shard
@@ -1977,6 +2028,7 @@ fn update_vectors_replaces_stored_vector() {
                 }],
                 None,
                 None,
+                None,
             )
             .expect("upsert_points failed"),
         )
@@ -2031,6 +2083,7 @@ fn delete_vectors_removes_named_field_only() {
                     vector: two_field_vector([0.1, 0.2, 0.3, 0.4], [0.5, 0.6, 0.7, 0.8]),
                     payload: None,
                 }],
+                None,
                 None,
                 None,
             )
@@ -2098,6 +2151,7 @@ fn delete_payload_removes_only_named_keys() {
                 }],
                 None,
                 None,
+                None,
             )
             .expect("upsert_points failed"),
         )
@@ -2154,6 +2208,7 @@ fn clear_payload_removes_all_keys() {
                     vector: named_vec([0.1, 0.2, 0.3, 0.4]),
                     payload: Some(r#"{"a":1,"b":2}"#.to_string()),
                 }],
+                None,
                 None,
                 None,
             )
@@ -2250,6 +2305,7 @@ fn multivector_round_trips() {
                     },
                     payload: None,
                 }],
+                None,
                 None,
                 None,
             )
@@ -2414,6 +2470,7 @@ fn sparse_vector_round_trips() {
                 }],
                 None,
                 None,
+                None,
             )
             .expect("upsert_points failed"),
         )
@@ -2479,7 +2536,7 @@ fn create_field_index_enables_facet() {
             payload: Some(r#"{"category":"b"}"#.to_string()),
         },
     ];
-    let op = UpdateOperation::upsert_points(points, None, None).expect("upsert failed");
+    let op = UpdateOperation::upsert_points(points, None, None, None).expect("upsert failed");
     shard.update(op).expect("update failed");
 
     let op =
@@ -2527,6 +2584,7 @@ fn conditional_upsert_insert_only_preserves_existing() {
         }],
         None,
         Some(UpdateMode::InsertOnly),
+        None,
     )
     .expect("conditional upsert failed");
     shard.update(op).expect("update failed");
@@ -2756,7 +2814,7 @@ fn formula_rescoring_boosts_by_payload() {
             payload: Some(r#"{"popularity":100.0}"#.to_string()),
         },
     ];
-    let op = UpdateOperation::upsert_points(points, None, None).expect("upsert failed");
+    let op = UpdateOperation::upsert_points(points, None, None, None).expect("upsert failed");
     shard.update(op).expect("update failed");
 
     let expression = Expression::sum(vec![
@@ -2823,7 +2881,7 @@ fn formula_max_clamps_scores_to_a_floor() {
             payload: None,
         },
     ];
-    let op = UpdateOperation::upsert_points(points, None, None).expect("upsert failed");
+    let op = UpdateOperation::upsert_points(points, None, None, None).expect("upsert failed");
     shard.update(op).expect("update failed");
 
     const FLOOR: f32 = 42.0;
@@ -2910,7 +2968,7 @@ fn formula_min_clamps_scores_to_a_ceiling() {
             payload: None,
         },
     ];
-    let op = UpdateOperation::upsert_points(points, None, None).expect("upsert failed");
+    let op = UpdateOperation::upsert_points(points, None, None, None).expect("upsert failed");
     shard.update(op).expect("update failed");
 
     const CEILING: f32 = -42.0;
@@ -3000,7 +3058,7 @@ fn query_groups_returns_one_group_per_key() {
             payload: Some(r#"{"category":"b"}"#.to_string()),
         },
     ];
-    let op = UpdateOperation::upsert_points(points, None, None).expect("upsert failed");
+    let op = UpdateOperation::upsert_points(points, None, None, None).expect("upsert failed");
     shard.update(op).expect("update failed");
 
     let groups = shard
@@ -3072,6 +3130,7 @@ fn create_and_delete_named_vector_field() {
             },
             payload: None,
         }],
+        None,
         None,
         None,
     )
@@ -3149,6 +3208,7 @@ fn create_vector_name_conflict_is_rejected() {
             },
             payload: None,
         }],
+        None,
         None,
         None,
     )
@@ -3384,6 +3444,7 @@ fn with_payload_exclude_drops_keys() {
             vector: named_vec([0.1, 0.2, 0.3, 0.4]),
             payload: Some(r#"{"keep":"yes","secret":"no"}"#.to_string()),
         }],
+        None,
         None,
         None,
     )
@@ -3659,7 +3720,9 @@ fn order_by_scroll_populates_order_value() {
         },
     ];
     shard
-        .update(UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed"))
+        .update(
+            UpdateOperation::upsert_points(points, None, None, None).expect("upsert_points failed"),
+        )
         .expect("update failed");
 
     shard
@@ -3755,7 +3818,9 @@ fn order_by_scroll_resumes_via_start_from() {
         },
     ];
     shard
-        .update(UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed"))
+        .update(
+            UpdateOperation::upsert_points(points, None, None, None).expect("upsert_points failed"),
+        )
         .expect("update failed");
     shard
         .update(
@@ -3849,7 +3914,9 @@ fn query_order_by_populates_order_value() {
         },
     ];
     shard
-        .update(UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed"))
+        .update(
+            UpdateOperation::upsert_points(points, None, None, None).expect("upsert_points failed"),
+        )
         .expect("update failed");
 
     shard
@@ -3963,7 +4030,9 @@ fn order_by_scroll_multipage_continuation() {
         },
     ];
     shard
-        .update(UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed"))
+        .update(
+            UpdateOperation::upsert_points(points, None, None, None).expect("upsert_points failed"),
+        )
         .expect("update failed");
     shard
         .update(
@@ -4076,7 +4145,9 @@ fn order_by_scroll_float_order_value() {
         },
     ];
     shard
-        .update(UpdateOperation::upsert_points(points, None, None).expect("upsert_points failed"))
+        .update(
+            UpdateOperation::upsert_points(points, None, None, None).expect("upsert_points failed"),
+        )
         .expect("update failed");
     shard
         .update(
@@ -4788,7 +4859,9 @@ fn nested_field_index_through_ffi() {
             },
         ];
         shard
-            .update(UpdateOperation::upsert_points(points, None, None).expect("upsert failed"))
+            .update(
+                UpdateOperation::upsert_points(points, None, None, None).expect("upsert failed"),
+            )
             .expect("update failed");
         for (key, params) in [
             ("offers[].shop", keyword("offers")),

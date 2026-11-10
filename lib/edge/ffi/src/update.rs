@@ -105,23 +105,35 @@ impl UpdateOperation {
     /// restricts the operation to inserting only (`InsertOnly`) or updating
     /// only (`UpdateOnly`); unset means regular upsert.
     ///
+    /// When `document_mass` is set (a fraction in `(0, 1]`), each sparse vector is
+    /// pruned to the dimensions with the largest absolute weight that make up
+    /// that fraction of its total weight. Dropped weights are discarded for
+    /// good. Dense vectors are not affected.
+    ///
     /// # Errors
     ///
     /// Returns an [`EdgeError::InvalidArgument`](crate::error::EdgeError)
     /// if any point's `payload` field is not valid JSON, any UUID ID is
     /// malformed, any vector is invalid (a non-finite component, or an empty
-    /// or ragged multi-vector), or the condition filter is invalid.
-    #[uniffi::constructor(default(condition = None, update_mode = None))]
+    /// or ragged multi-vector), the condition filter is invalid, or
+    /// `document_mass` is not in `(0, 1]`.
+    #[uniffi::constructor(default(condition = None, update_mode = None, document_mass = None))]
     pub fn upsert_points(
         points: Vec<Point>,
         condition: Option<Filter>,
         update_mode: Option<UpdateMode>,
+        document_mass: Option<f32>,
     ) -> std::result::Result<Arc<Self>, crate::error::EdgeError> {
         let internal_points = points
             .into_iter()
             .map(|p| p.into_internal())
             .collect::<crate::error::Result<Vec<_>>>()?;
-        let points_op = PointInsertOperationsInternal::PointsList(internal_points);
+        let mut points_op = PointInsertOperationsInternal::PointsList(internal_points);
+        if let Some(document_mass) = document_mass {
+            point_ops::validate_document_mass(document_mass)
+                .map_err(|err| crate::error::EdgeError::invalid_argument(err.to_string()))?;
+            points_op.cut_sparse_vectors(document_mass);
+        }
         let condition = condition.map(SegmentFilter::try_from).transpose()?;
         let update_mode = update_mode.map(shard::operations::point_ops::UpdateMode::from);
 

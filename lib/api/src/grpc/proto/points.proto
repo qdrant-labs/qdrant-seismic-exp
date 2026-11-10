@@ -179,6 +179,8 @@ message UpsertPoints {
   optional uint64 timeout = 7;
   // Mode of the upsert operation: insert_only, upsert (default), update_only
   optional UpdateMode update_mode = 8;
+  // Only applicable to sparse vectors. Prune each uploaded sparse vector to the dimensions with the largest absolute weight that make up this fraction of its total weight. Dropped weights are discarded for good. This enables approximate sparse search: use with caution.
+  optional float document_mass = 9;
 }
 
 message DeletePoints {
@@ -1328,6 +1330,8 @@ message PointsUpdateOperation {
     optional Filter update_filter = 3;
     // Mode of the upsert operation: insert_only, upsert (default), update_only
     optional UpdateMode update_mode = 4;
+    // Only applicable to sparse vectors. Prune each uploaded sparse vector to the dimensions with the largest absolute weight that make up this fraction of its total weight. Dropped weights are discarded for good. This enables approximate sparse search: use with caution.
+    optional float document_mass = 5;
   }
   message SetPayload {
     map<string, Value> payload = 1;

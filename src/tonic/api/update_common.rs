@@ -57,6 +57,7 @@ pub async fn upsert(
         update_filter,
         timeout,
         update_mode,
+        document_mass,
     } = upsert_points;
 
     let points: Result<_, _> = points.into_iter().map(PointStruct::try_from).collect();
@@ -70,6 +71,7 @@ pub async fn upsert(
             .map(segment::types::Filter::try_from)
             .transpose()?,
         update_mode: update_mode.map(grpc_update_mode_to_rest),
+        document_mass,
     });
 
     let timing = Instant::now();
@@ -462,6 +464,7 @@ pub async fn update_batch(
                 shard_key_selector,
                 update_filter,
                 update_mode,
+                document_mass,
             }) => {
                 upsert(
                     StrictModeCheckedTocProvider::new(dispatcher),
@@ -474,6 +477,7 @@ pub async fn update_batch(
                         update_filter,
                         timeout,
                         update_mode,
+                        document_mass,
                     },
                     internal_params,
                     auth.clone(),

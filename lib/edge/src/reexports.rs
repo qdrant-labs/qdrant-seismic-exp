@@ -48,7 +48,7 @@ mod reexports_from_qdrant_crates {
     pub use shard::operations::point_ops::{
         ConditionalInsertOperationInternal as ConditionalInsertOperation, PointIdsList,
         PointInsertOperationsInternal as PointInsertOperations, PointOperations,
-        PointSyncOperation, UpdateMode,
+        PointSyncOperation, UpdateMode, validate_document_mass,
     };
     pub use shard::operations::vector_name_ops::{
         CreateVectorName, DeleteVectorName, DenseVectorConfig, SparseVectorConfig,

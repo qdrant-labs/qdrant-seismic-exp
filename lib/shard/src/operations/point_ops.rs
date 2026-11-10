@@ -191,7 +191,48 @@ pub enum PointInsertOperationsInternal {
     PointsList(Vec<PointStructPersisted>),
 }
 
+/// `document_mass` is a fraction of the document mass: greater than 0, at most 1. NaN is rejected too.
+pub fn validate_document_mass(document_mass: f32) -> Result<(), validator::ValidationError> {
+    if document_mass > 0.0 && document_mass <= 1.0 {
+        return Ok(());
+    }
+    let mut error = validator::ValidationError::new("range");
+    error.message = Some(std::borrow::Cow::from(
+        "`document_mass` must be greater than 0 and at most 1",
+    ));
+    Err(error)
+}
+
 impl PointInsertOperationsInternal {
+    /// Prune every sparse vector to the dimensions making up `document_mass` of its total
+    /// absolute weight. Dense and multi-dense vectors are left untouched.
+    pub fn cut_sparse_vectors(&mut self, document_mass: f32) {
+        match self {
+            Self::PointsBatch(batch) => match &mut batch.vectors {
+                BatchVectorStructPersisted::Single(_)
+                | BatchVectorStructPersisted::MultiDense(_) => (),
+                BatchVectorStructPersisted::Named(named) => {
+                    for vector in named.values_mut().flatten() {
+                        vector.cut_sparse(document_mass);
+                    }
+                }
+            },
+            Self::PointsList(points) => {
+                for point in points {
+                    match &mut point.vector {
+                        VectorStructPersisted::Single(_) | VectorStructPersisted::MultiDense(_) => {
+                        }
+                        VectorStructPersisted::Named(named) => {
+                            for vector in named.values_mut() {
+                                vector.cut_sparse(document_mass);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn point_ids(&self) -> Vec<PointIdType> {
         match self {
             Self::PointsBatch(batch) => batch.ids.clone(),
@@ -973,6 +1014,16 @@ pub enum VectorPersisted {
     MultiDense(MultiDenseVector),
 }
 
+impl VectorPersisted {
+    /// Prune a sparse vector to `mass` of its total absolute weight. No-op for other vector types.
+    pub fn cut_sparse(&mut self, mass: f32) {
+        match self {
+            VectorPersisted::Sparse(sparse) => sparse.cut_to_mass(mass),
+            VectorPersisted::Dense(_) | VectorPersisted::MultiDense(_) => (),
+        }
+    }
+}
+
 impl Hash for VectorPersisted {
     fn hash<H: Hasher>(&self, state: &mut H) {
         mem::discriminant(self).hash(state);
@@ -1437,5 +1488,55 @@ mod tests {
             "unexpected message: {}",
             err.message(),
         );
+    }
+
+    #[test]
+    fn cut_sparse_vectors_prunes_sparse_only() {
+        use sparse::common::sparse_vector::SparseVector;
+
+        let sparse = || {
+            VectorPersisted::Sparse(SparseVector {
+                indices: vec![1, 2, 3, 4],
+                values: vec![-2.0, 4.0, 1.0, 3.0],
+            })
+        };
+        let pruned = VectorPersisted::Sparse(SparseVector {
+            indices: vec![2, 4],
+            values: vec![4.0, 3.0],
+        });
+        let dense = VectorPersisted::Dense(vec![1.0, 2.0]);
+
+        let named = |v: VectorPersisted| HashMap::from([("v".to_string(), v)]);
+
+        let mut list = PointInsertOperationsInternal::PointsList(vec![PointStructPersisted {
+            id: PointIdType::from(1),
+            vector: VectorStructPersisted::Named(named(sparse())),
+            payload: None,
+        }]);
+        list.cut_sparse_vectors(0.5);
+        let PointInsertOperationsInternal::PointsList(points) = &list else {
+            unreachable!()
+        };
+        assert_eq!(
+            points[0].vector,
+            VectorStructPersisted::Named(named(pruned.clone()))
+        );
+
+        let mut batch = PointInsertOperationsInternal::PointsBatch(BatchPersisted {
+            ids: vec![PointIdType::from(1), PointIdType::from(2)],
+            vectors: BatchVectorStructPersisted::Named(HashMap::from([(
+                "v".to_string(),
+                vec![sparse(), dense.clone()],
+            )])),
+            payloads: None,
+        });
+        batch.cut_sparse_vectors(0.5);
+        let PointInsertOperationsInternal::PointsBatch(batch) = &batch else {
+            unreachable!()
+        };
+        let BatchVectorStructPersisted::Named(named_batch) = &batch.vectors else {
+            unreachable!()
+        };
+        assert_eq!(named_batch["v"], vec![pruned, dense]);
     }
 }

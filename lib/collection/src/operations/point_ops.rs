@@ -429,6 +429,7 @@ mod tests {
             shard_key: None,
             update_filter: None,
             update_mode: None,
+            document_mass: None,
         });
         assert!(batch.validate().is_err());
 
@@ -441,6 +442,7 @@ mod tests {
             shard_key: None,
             update_filter: None,
             update_mode: None,
+            document_mass: None,
         });
         assert!(batch.validate().is_ok());
 
@@ -453,6 +455,7 @@ mod tests {
             shard_key: None,
             update_filter: None,
             update_mode: None,
+            document_mass: None,
         });
         assert!(batch.validate().is_err());
     }

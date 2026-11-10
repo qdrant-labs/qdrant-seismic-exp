@@ -1,0 +1,431 @@
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#   "httpx==0.28.1",
+#   "ijson==3.3.0",
+#   "numpy==2.5.4",
+#   "scipy==1.18.1",
+# ]
+# ///
+import argparse
+import asyncio
+import math
+import tarfile
+import time
+from collections.abc import Iterator
+from dataclasses import dataclass
+from itertools import chain
+from pathlib import Path
+from typing import Any, NamedTuple
+
+import httpx
+import ijson
+import numpy as np
+from scipy import sparse
+
+DEFAULT_DATA_DIR = Path(__file__).parent.parent / "storage"
+DOCS_ARCHIVE = "documents.tar.gz"
+QUERIES_ARCHIVE = "queries.tar.gz"
+VECTOR_NAME = "splade"
+VOCAB_SIZE = 30_522  # BERT wordpiece vocabulary: the number of possible dimensions
+TOP = 10
+CSR_CHUNK_DOCS = 50_000  # documents converted to a numpy matrix at once
+GROUND_TRUTH_CHUNK = 25  # queries scored against the whole corpus at once
+UPLOAD_CONCURRENCY = 4
+
+SparseJson = dict[str, list[Any]]
+
+
+@dataclass(frozen=True)
+class Corpus:
+    doc_ids: list[str]
+    docs: sparse.csr_matrix
+    queries: sparse.csr_matrix
+
+
+class Hits(NamedTuple):
+    ids: list[str]
+    server_ms: float
+
+
+@dataclass(frozen=True)
+class RunResult:
+    label: str
+    client_ms: np.ndarray
+    server_ms: np.ndarray
+    recall: float
+    mrr: float
+    ndcg: float
+
+
+class RawVector(NamedTuple):
+    doc_id: str
+    coordinates: list[int]
+    values: list[float]
+
+
+def stream_vectors(archive: Path, member_suffix: str) -> Iterator[RawVector]:
+    """Yield vectors one by one from every JSON file in a tar.gz, in archive order."""
+    # "r|gz" reads the archive as a stream: no seeking, no full extraction
+    with tarfile.open(archive, "r|gz") as tar:
+        for member in tar:
+            if not member.name.endswith(member_suffix):
+                continue
+            print(f"Reading {member.name}")
+            file = tar.extractfile(member)
+            assert file is not None
+            # ijson parses `{"vectors": [...]}` lazily, one array item at a time
+            for item in ijson.items(file, "vectors.item", use_float=True):
+                yield RawVector(item["id"], item["coordinates"], item["values"])
+
+
+def to_csr(vectors: list[RawVector]) -> sparse.csr_matrix:
+    """Pack vectors into a CSR matrix: one row per vector, one column per dimension."""
+    # CSR stores all rows back to back in two flat arrays (`indices`, `data`).
+    # `indptr[r]:indptr[r + 1]` is the slice of those arrays that belongs to row r.
+    lengths = np.array([len(v.coordinates) for v in vectors])
+    # cumsum turns lengths [3, 2, 4] into offsets [3, 5, 9]; the 0 in front makes
+    # them [0, 3, 5, 9], so row 1 spans 3:5
+    indptr = np.concatenate([[0], np.cumsum(lengths)])
+    total = int(indptr[-1])
+    # fromiter fills a typed array straight from a Python iterator, with no
+    # intermediate list. chain.from_iterable flattens the per-vector lists.
+    indices = np.fromiter(
+        chain.from_iterable(v.coordinates for v in vectors), np.int32, count=total
+    )
+    data = np.fromiter(
+        chain.from_iterable(v.values for v in vectors), np.float32, count=total
+    )
+    return sparse.csr_matrix((data, indices, indptr), shape=(len(vectors), VOCAB_SIZE))
+
+
+def load_matrix(
+    archive: Path, member_suffix: str, limit: int
+) -> tuple[list[str], sparse.csr_matrix]:
+    """Read up to `limit` vectors. Return their ids and a CSR matrix."""
+    ids: list[str] = []
+    chunks: list[sparse.csr_matrix] = []
+    pending: list[RawVector] = []
+
+    def flush() -> None:
+        if pending:
+            chunks.append(to_csr(pending))
+            pending.clear()
+            print(f"\r  {len(ids)} vectors", end="", flush=True)
+
+    for vector in stream_vectors(archive, member_suffix):
+        ids.append(vector.doc_id)
+        pending.append(vector)
+        if len(pending) == CSR_CHUNK_DOCS:
+            flush()
+        if len(ids) == limit:
+            break
+    flush()
+    print()
+    # vstack glues the chunks on top of each other into one matrix
+    matrix = sparse.vstack(chunks, format="csr")
+    matrix.eliminate_zeros()  # drop explicit zero weights, if any
+    matrix.sort_indices()  # make column indices ascending inside every row
+    return ids, matrix
+
+
+def load_corpus(data_dir: Path, max_docs: int, num_queries: int) -> Corpus:
+    doc_ids, docs = load_matrix(data_dir / DOCS_ARCHIVE, ".json", max_docs)
+    _, queries = load_matrix(data_dir / QUERIES_ARCHIVE, ".json", num_queries)
+    return Corpus(doc_ids=doc_ids, docs=docs, queries=queries)
+
+
+def top_k_per_row(scores: np.ndarray) -> np.ndarray:
+    """For each row of a (queries x docs) score matrix, return the column ids of
+    the TOP highest scores, best first."""
+    # argpartition is a cheap partial sort: the first TOP entries of its result
+    # are the TOP largest scores, in no particular order. Scores are negated
+    # because argpartition puts the smallest values first.
+    candidates = np.argpartition(-scores, TOP, axis=1)[:, :TOP]
+    # take_along_axis picks, in every row, the scores at that row's candidates
+    candidate_scores = np.take_along_axis(scores, candidates, axis=1)
+    # argsort fully sorts only these TOP candidates per row (negated: best first)
+    order = np.argsort(-candidate_scores, axis=1)
+    # reorder the candidate doc ids with that ranking
+    return np.take_along_axis(candidates, order, axis=1)
+
+
+def ground_truth(corpus: Corpus) -> list[list[str]]:
+    """Exact top TOP doc ids per query, by brute-force dot product."""
+    # .T flips the (docs x dims) matrix to (dims x docs). tocsr() makes the flip
+    # physical, so the products below read contiguous memory.
+    docs_t = corpus.docs.T.tocsr()
+    expected: list[list[str]] = []
+    for start in range(0, corpus.queries.shape[0], GROUND_TRUTH_CHUNK):
+        # slicing a CSR matrix by rows gives a smaller CSR matrix
+        chunk = corpus.queries[start : start + GROUND_TRUTH_CHUNK]
+        # `@` is a sparse matrix product: (chunk x dims) @ (dims x docs) gives
+        # every query's dot product with every doc. toarray() makes it a dense
+        # numpy array, which is small enough with only a few queries at a time.
+        scores = (chunk @ docs_t).toarray()
+        top = top_k_per_row(scores)
+        expected.extend([corpus.doc_ids[doc] for doc in row] for row in top)
+        print(f"\r  {len(expected)}/{corpus.queries.shape[0]}", end="", flush=True)
+    print()
+    return expected
+
+
+def row_to_json(matrix: sparse.csr_matrix, row: int) -> SparseJson:
+    # indptr[row]:indptr[row + 1] is this row's slice of the flat CSR arrays
+    start, end = matrix.indptr[row], matrix.indptr[row + 1]
+    return {
+        "indices": matrix.indices[start:end].tolist(),
+        "values": matrix.data[start:end].tolist(),
+    }
+
+
+def score_query(returned: list[str], expected: list[str]) -> tuple[float, float, float]:
+    """Recall, MRR and nDCG at TOP, with the ground truth docs as the relevant set."""
+    relevant = set(expected)
+    hit_ranks = [rank for rank, doc in enumerate(returned) if doc in relevant]
+    recall = len(hit_ranks) / TOP
+    mrr = 1 / (hit_ranks[0] + 1) if hit_ranks else 0.0
+    dcg = sum(1 / math.log2(rank + 2) for rank in hit_ranks)
+    ideal_dcg = sum(1 / math.log2(rank + 2) for rank in range(TOP))
+    return recall, mrr, dcg / ideal_dcg
+
+
+async def recreate_collection(client: httpx.AsyncClient, name: str) -> None:
+    (await client.delete(f"/collections/{name}")).raise_for_status()
+    body = {"vectors": {}, "sparse_vectors": {VECTOR_NAME: {}}}
+    (await client.put(f"/collections/{name}", json=body)).raise_for_status()
+
+
+async def upload(
+    client: httpx.AsyncClient, name: str, corpus: Corpus, batch_size: int, document_mass: float,
+) -> None:
+    semaphore = asyncio.Semaphore(UPLOAD_CONCURRENCY)
+    total = len(corpus.doc_ids)
+    done = 0
+
+    async def send(start: int) -> None:
+        nonlocal done
+        async with semaphore:
+            end = min(start + batch_size, total)
+            points = [
+                {
+                    "id": row,
+                    "vector": {VECTOR_NAME: row_to_json(corpus.docs, row)},
+                    "payload": {"_id": corpus.doc_ids[row]},
+                }
+                for row in range(start, end)
+            ]
+            response = await client.put(
+                f"/collections/{name}/points",
+                params={"wait": "true"},
+                json={"points": points, "document_mass": document_mass},
+            )
+            response.raise_for_status()
+            done += end - start
+            print(f"\rUploaded {done}/{total}", end="", flush=True)
+
+    await asyncio.gather(*(send(start) for start in range(0, total, batch_size)))
+    print()
+
+
+async def collection_info(client: httpx.AsyncClient, name: str) -> dict[str, Any]:
+    response = await client.get(f"/collections/{name}")
+    response.raise_for_status()
+    return response.json()["result"]
+
+
+async def wait_until_green(client: httpx.AsyncClient, name: str) -> None:
+    consecutive = 0
+    while consecutive < 3:
+        info = await collection_info(client, name)
+        consecutive = consecutive + 1 if info["status"] == "green" else 0
+        await asyncio.sleep(2)
+
+
+def query_body(vector: SparseJson) -> dict[str, Any]:
+    return {
+        "query": vector,
+        "using": VECTOR_NAME,
+        "limit": TOP,
+        "with_payload": ["_id"],
+    }
+
+
+async def search(
+    client: httpx.AsyncClient, name: str, vector: SparseJson
+) -> Hits:
+    response = await client.post(
+        f"/collections/{name}/points/query", json=query_body(vector)
+    )
+    response.raise_for_status()
+    body = response.json()
+    ids = [point["payload"]["_id"] for point in body["result"]["points"]]
+    return Hits(ids, body["time"] * 1000)
+
+
+async def assert_document_mass_supported(client: httpx.AsyncClient, name: str) -> None:
+    """A server that knows `document_mass` rejects 0.0. An older one ignores the field."""
+    response = await client.put(
+        f"/collections/{name}/points",
+        json={"points": [], "document_mass": 0.0},
+    )
+    if response.status_code not in (400, 422):
+        raise SystemExit(
+            f"Server accepted document_mass=0.0 (HTTP {response.status_code}): "
+            "it was not built with document_mass, results would be meaningless."
+        )
+
+
+async def run_queries(
+    client: httpx.AsyncClient,
+    name: str,
+    vectors: list[SparseJson],
+    expected: list[list[str]],
+    label: str,
+    warmup: int,
+) -> RunResult:
+    """Run every query against the collection, one at a time, and score the answers."""
+    for vector in vectors[:warmup]:
+        await search(client, name, vector)
+
+    client_ms: list[float] = []
+    server_ms: list[float] = []
+    scores: list[tuple[float, float, float]] = []
+    for number, (vector, truth) in enumerate(zip(vectors, expected, strict=True)):
+        start = time.perf_counter()
+        hits = await search(client, name, vector)
+        client_ms.append((time.perf_counter() - start) * 1000)
+        server_ms.append(hits.server_ms)
+        scores.append(score_query(hits.ids, truth))
+        if (number + 1) % 100 == 0:
+            print(f"  {number + 1}/{len(vectors)} queries")
+
+    # scores is (queries x 3): axis=0 averages down the rows, one mean per metric
+    recall, mrr, ndcg = np.mean(scores, axis=0)
+    return RunResult(
+        label, np.array(client_ms), np.array(server_ms), recall, mrr, ndcg
+    )
+
+
+def print_corpus_stats(corpus: Corpus) -> None:
+    # indptr holds row offsets, so the difference of neighbours is the number of
+    # non-zero dimensions in each row
+    doc_nnz = np.diff(corpus.docs.indptr)
+    query_nnz = np.diff(corpus.queries.indptr)
+    print(f"Docs: {len(doc_nnz)}, non-zero dims per doc: mean {doc_nnz.mean():.1f}")
+    print(
+        f"Queries: {len(query_nnz)}, non-zero dims per query: "
+        f"min {query_nnz.min()}, median {np.median(query_nnz):.0f}, max {query_nnz.max()}"
+    )
+
+
+def print_latency_table(title: str, series: list[tuple[str, np.ndarray]]) -> None:
+    # percentile(x, q) is the value below which q% of the samples fall
+    base_p50 = np.percentile(series[0][1], 50)
+    header = (
+        f"{'config':<22}{'min ms':>9}{'p50 ms':>9}{'p95 ms':>9}{'max ms':>9}"
+        f"{'p50 x':>8}{'paired x':>10}"
+    )
+    print(f"\n{title}\n")
+    print(header)
+    print("-" * len(header))
+    for label, latencies in series:
+        p50, p95 = np.percentile(latencies, [50, 95])  # both in one pass
+        # every config saw the same query at about the same time, so compare per query
+        paired = np.median(series[0][1] / latencies)
+        print(
+            f"{label:<22}{latencies.min():>9.2f}{p50:>9.2f}{p95:>9.2f}"
+            f"{latencies.max():>9.2f}{base_p50 / p50:>8.2f}{paired:>10.2f}"
+        )
+
+
+def print_quality_table(results: list[RunResult]) -> None:
+    header = f"{'config':<22}{'recall':>9}{'mrr':>9}{'ndcg':>9}"
+    print(f"\nQuality at {TOP}, ground truth is the exact top {TOP}\n")
+    print(header)
+    print("-" * len(header))
+    for result in results:
+        print(
+            f"{result.label:<22}{result.recall:>9.4f}{result.mrr:>9.4f}{result.ndcg:>9.4f}"
+        )
+
+
+def print_report(results: list[RunResult]) -> None:
+    print_latency_table(
+        "Latency, server side (`time` in the response)",
+        [(result.label, result.server_ms) for result in results],
+    )
+    print_latency_table(
+        "Latency, client side (includes HTTP)",
+        [(result.label, result.client_ms) for result in results],
+    )
+    print_quality_table(results)
+
+
+async def run(
+    args: argparse.Namespace, corpus: Corpus, expected: list[list[str]]
+) -> None:
+    headers = {"api-key": args.api_key} if args.api_key else {}
+    timeout = httpx.Timeout(300)
+    vectors = [row_to_json(corpus.queries, row) for row in range(corpus.queries.shape[0])]
+    # document_mass is applied at upload, so every value needs its own index.
+    # The first one, 1.0 (nothing pruned), is the exact baseline.
+    masses = [1.0, *(mass for mass in args.doc_cut if mass != 1.0)]
+    results: list[RunResult] = []
+    async with httpx.AsyncClient(
+        base_url=args.url, headers=headers, timeout=timeout
+    ) as client:
+        for mass in masses:
+            label = "baseline" if mass == 1.0 else f"document_mass={mass:g}"
+            print(f"\n== {label} ==")
+            await recreate_collection(client, args.collection)
+            await assert_document_mass_supported(client, args.collection)
+            await upload(client, args.collection, corpus, args.batch_size, mass)
+            await wait_until_green(client, args.collection)
+            info = await collection_info(client, args.collection)
+            print(
+                f"Collection: {info['points_count']} points, {info['segments_count']} segments"
+            )
+            results.append(
+                await run_queries(
+                    client, args.collection, vectors, expected, label, args.warmup
+                )
+            )
+    print_report(results)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Compare sparse search on exact and document-pruned indexes."
+    )
+    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    parser.add_argument("--max-docs", type=int, default=1_000_000)
+    parser.add_argument("--num-queries", type=int, default=1_000)
+    parser.add_argument("--url", default="http://localhost:6333")
+    parser.add_argument("--api-key", default=None)
+    parser.add_argument("--collection", default="doc_cut_bench")
+    parser.add_argument(
+        "--doc-cut",
+        type=float,
+        nargs="+",
+        default=[0.5, 0.6, 0.7, 0.8, 0.9, 0.95],
+        help="document_mass values to build an index with, each above 0 and at most 1",
+    )
+    parser.add_argument("--warmup", type=int, default=50)
+    parser.add_argument("--batch-size", type=int, default=200)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    corpus = load_corpus(args.data_dir, args.max_docs, args.num_queries)
+    print_corpus_stats(corpus)
+    print("Computing ground truth")
+    expected = ground_truth(corpus)
+    asyncio.run(run(args, corpus, expected))
+
+
+if __name__ == "__main__":
+    main()

@@ -18,13 +18,19 @@ pub struct PyUpdateOperation(CollectionUpdateOperations);
 #[pymethods]
 impl PyUpdateOperation {
     #[staticmethod]
-    #[pyo3(signature = (points, condition=None, update_mode=None))]
+    #[pyo3(signature = (points, condition=None, update_mode=None, document_mass=None))]
     pub fn upsert_points(
         points: Vec<PyPoint>,
         condition: Option<PyFilter>,
         update_mode: Option<PyUpdateMode>,
-    ) -> Self {
-        let points = PointInsertOperationsInternal::PointsList(PyPoint::peel_vec(points));
+        document_mass: Option<f32>,
+    ) -> PyResult<Self> {
+        let mut points = PointInsertOperationsInternal::PointsList(PyPoint::peel_vec(points));
+        if let Some(document_mass) = document_mass {
+            point_ops::validate_document_mass(document_mass)
+                .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
+            points.cut_sparse_vectors(document_mass);
+        }
         let update_mode = update_mode.map(UpdateMode::from);
 
         let operation = match (condition, update_mode) {
@@ -47,7 +53,7 @@ impl PyUpdateOperation {
             (None, None) => point_ops::PointOperations::UpsertPoints(points),
         };
 
-        Self(CollectionUpdateOperations::PointOperation(operation))
+        Ok(Self(CollectionUpdateOperations::PointOperation(operation)))
     }
 
     #[staticmethod]

@@ -39,3 +39,19 @@ sv = SparseVector(indices=[1, 2], values=[1.0, 0.5])
 r = shard.query(QueryRequest(limit=3, query=Query.Nearest(sv, using="sparse"), with_payload=True))
 print(f"Sparse: {len(r)} results")
 assert len(r) == 3, f"Sparse query should return 3 results, got {len(r)}"
+
+# Document pruning: keep only 50% of each document's mass (sum of absolute weights) at upload.
+# The dropped dimensions are discarded for good: to get them back, re-upload the original vectors.
+pruned_path = TMP_DIR / "qdrant_edge_sparse_pruned"
+shutil.rmtree(pruned_path, ignore_errors=True)
+os.makedirs(pruned_path)
+pruned_shard = EdgeShard.create(pruned_path, config)
+pruned_shard.update(UpdateOperation.upsert_points(
+    [Point(1, {"": [0.5, 0.5, 0.3, 0.1], "sparse": SparseVector(indices=[1, 2, 3], values=[3.0, 1.0, 1.0])})],
+    document_mass=0.5,
+))
+# mass 5.0 -> target 2.5: only the dimension with weight 3.0 survives
+[stored] = pruned_shard.retrieve([1], with_payload=False, with_vector=True)
+pruned = stored.vector["sparse"]
+print(f"Pruned sparse vector: indices={pruned.indices}, values={pruned.values}")
+assert pruned.indices == [1] and pruned.values == [3.0]

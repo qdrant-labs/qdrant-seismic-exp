@@ -126,6 +126,54 @@ impl RemappedSparseVector {
     }
 }
 
+/// Positions of the dimensions that make up at least `mass` of the total absolute weight, taking
+/// the dimensions with the largest absolute weight first. Positions are returned in ascending
+/// order.
+///
+/// At least one dimension is always kept. Ties are broken by the smaller index, so the result
+/// is deterministic. The sums are computed in `f64`.
+///
+/// `mass` must be in `(0, 1]`; it is validated by the API.
+pub fn positions_to_keep_by_mass<T: Ord>(
+    indices: &[T],
+    values: &[DimWeight],
+    mass: f32,
+) -> Vec<usize> {
+    debug_assert!(mass > 0.0 && mass <= 1.0);
+    let all = || (0..values.len()).collect::<Vec<usize>>();
+    if mass >= 1.0 {
+        return all();
+    }
+    let total_mass: f64 = values.iter().map(|v| f64::from(v.abs())).sum();
+    if total_mass == 0.0 {
+        return all();
+    }
+    let target_mass = f64::from(mass) * total_mass;
+
+    let mut ranked = all();
+    ranked.sort_unstable_by(|&a, &b| {
+        values[b]
+            .abs()
+            .total_cmp(&values[a].abs())
+            .then_with(|| indices[a].cmp(&indices[b]))
+    });
+
+    // keep dimensions up to and including the one that reaches the target mass
+    let mut kept_mass = 0.0;
+    let keep = ranked
+        .iter()
+        .take_while(|&&i| {
+            let reached = kept_mass >= target_mass;
+            kept_mass += f64::from(values[i].abs());
+            !reached
+        })
+        .count()
+        .max(1);
+    ranked.truncate(keep);
+    ranked.sort_unstable();
+    ranked
+}
+
 impl SparseVector {
     pub fn new(indices: Vec<DimId>, values: Vec<DimWeight>) -> Result<Self, ValidationErrors> {
         let vector = SparseVector { indices, values };
@@ -243,6 +291,18 @@ impl SparseVector {
             indices: self.indices,
             values: self.values,
         }
+    }
+
+    /// Prune the vector to the dimensions with the largest absolute weights that together make up
+    /// at least `mass` of the total absolute weight (the vector "mass"). The order of the
+    /// remaining dimensions is preserved.
+    pub fn cut_to_mass(&mut self, mass: f32) {
+        let keep = positions_to_keep_by_mass(&self.indices, &self.values, mass);
+        if keep.len() == self.indices.len() {
+            return;
+        }
+        self.indices = keep.iter().map(|&i| self.indices[i]).collect();
+        self.values = keep.iter().map(|&i| self.values[i]).collect();
     }
 }
 
@@ -408,5 +468,52 @@ mod tests {
         let sum = a.combine_aggregate(&b, |x, y| x + 2.0 * y);
         assert_eq!(sum.indices, vec![1, 2, 3, 4]);
         assert_eq!(sum.values, vec![0.1, 4.2, 6.3, 8.0]);
+    }
+
+    #[test]
+    fn cut_to_mass_keeps_mass_fraction() {
+        // by absolute weight: 4, 3, 2, 1. The total is 10.
+        let vector = SparseVector {
+            indices: vec![10, 20, 30, 40],
+            values: vec![-2.0, 4.0, 1.0, 3.0],
+        };
+        for (mass, expected) in [
+            (0.0001, vec![20]),
+            (0.25, vec![20]),
+            (0.5, vec![20, 40]),
+            (0.75, vec![10, 20, 40]),
+            (0.95, vec![10, 20, 30, 40]),
+            (1.0, vec![10, 20, 30, 40]),
+        ] {
+            let mut cut = vector.clone();
+            cut.cut_to_mass(mass);
+            assert_eq!(cut.indices, expected, "mass = {mass}");
+            assert_eq!(cut.indices.len(), cut.values.len());
+            for (i, v) in cut.indices.iter().zip(&cut.values) {
+                let pos = vector.indices.iter().position(|x| x == i).unwrap();
+                assert_eq!(*v, vector.values[pos]);
+            }
+        }
+    }
+
+    #[test]
+    fn cut_to_mass_ties_and_degenerate() {
+        let mut tie = SparseVector {
+            indices: vec![5, 3, 9],
+            values: vec![1.0, 1.0, 1.0],
+        };
+        tie.cut_to_mass(0.5); // needs 2 of 3, the smaller indices win
+        assert_eq!(tie.indices, vec![5, 3]);
+
+        let mut zeros = SparseVector {
+            indices: vec![1, 2],
+            values: vec![0.0, 0.0],
+        };
+        zeros.cut_to_mass(0.5);
+        assert_eq!(zeros.indices, vec![1, 2]);
+
+        let mut empty = SparseVector::default();
+        empty.cut_to_mass(0.5);
+        assert!(empty.indices.is_empty());
     }
 }

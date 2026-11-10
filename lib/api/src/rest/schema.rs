@@ -1550,6 +1550,11 @@ pub struct PointsBatch {
     /// Mode of the upsert operation: insert_only, upsert (default), update_only
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_mode: Option<UpdateMode>,
+
+    /// Only applicable to sparse vectors. Prune each uploaded sparse vector to the dimensions with the largest absolute weight that make up this fraction of its total weight. Dropped weights are discarded for good. This enables approximate sparse search: use with caution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(custom(function = "validate_document_mass"))]
+    pub document_mass: Option<f32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
@@ -1588,6 +1593,11 @@ pub struct PointsList {
     /// Mode of the upsert operation: insert_only, upsert (default), update_only
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_mode: Option<UpdateMode>,
+
+    /// Only applicable to sparse vectors. Prune each uploaded sparse vector to the dimensions with the largest absolute weight that make up this fraction of its total weight. Dropped weights are discarded for good. This enables approximate sparse search: use with caution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(custom(function = "validate_document_mass"))]
+    pub document_mass: Option<f32>,
 }
 
 impl<'de> serde::Deserialize<'de> for PointInsertOperations {
@@ -1680,4 +1690,16 @@ impl From<MaxOptimizationThreads> for Option<usize> {
             MaxOptimizationThreads::Threads(threads) => Some(threads),
         }
     }
+}
+
+/// `document_mass` is a fraction of the document mass: greater than 0, at most 1. NaN is rejected too.
+pub fn validate_document_mass(document_mass: f32) -> Result<(), validator::ValidationError> {
+    if document_mass > 0.0 && document_mass <= 1.0 {
+        return Ok(());
+    }
+    let mut error = validator::ValidationError::new("range");
+    error.message = Some(std::borrow::Cow::from(
+        "`document_mass` must be greater than 0 and at most 1",
+    ));
+    Err(error)
 }

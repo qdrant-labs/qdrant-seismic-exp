@@ -5624,6 +5624,9 @@ pub struct UpsertPoints {
     /// Mode of the upsert operation: insert_only, upsert (default), update_only
     #[prost(enumeration = "UpdateMode", optional, tag = "8")]
     pub update_mode: ::core::option::Option<i32>,
+    /// Only applicable to sparse vectors. Prune each uploaded sparse vector to the dimensions with the largest absolute weight that make up this fraction of its total weight. Dropped weights are discarded for good. This enables approximate sparse search: use with caution.
+    #[prost(float, optional, tag = "9")]
+    pub document_mass: ::core::option::Option<f32>,
 }
 #[allow(clippy::all)]
 #[derive(validator::Validate)]
@@ -7660,6 +7663,9 @@ pub mod points_update_operation {
         /// Mode of the upsert operation: insert_only, upsert (default), update_only
         #[prost(enumeration = "super::UpdateMode", optional, tag = "4")]
         pub update_mode: ::core::option::Option<i32>,
+        /// Only applicable to sparse vectors. Prune each uploaded sparse vector to the dimensions with the largest absolute weight that make up this fraction of its total weight. Dropped weights are discarded for good. This enables approximate sparse search: use with caution.
+        #[prost(float, optional, tag = "5")]
+        pub document_mass: ::core::option::Option<f32>,
     }
     #[allow(clippy::all)]
     #[derive(serde::Serialize)]

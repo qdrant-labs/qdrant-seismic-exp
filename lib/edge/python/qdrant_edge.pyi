@@ -3528,6 +3528,7 @@ class UpdateOperation:
         points: List[Point],
         condition: Optional[Filter] = None,
         update_mode: Optional[UpdateMode] = None,
+        document_mass: Optional[float] = None,
     ) -> "UpdateOperation":
         """
         Insert or update points.
@@ -3539,6 +3540,13 @@ class UpdateOperation:
                 - UpdateMode.Upsert (default): insert new points, update existing points
                 - UpdateMode.InsertOnly: only insert new points, do not update existing points
                 - UpdateMode.UpdateOnly: only update existing points, do not insert new points
+            document_mass: Only applicable to sparse vectors. Prune each uploaded sparse vector to
+                the dimensions with the largest absolute weight that make up this fraction
+                (greater than 0, at most 1) of its total weight. Dropped weights are discarded
+                for good. This enables approximate sparse search: use with caution.
+
+        Raises:
+            ValueError: If `document_mass` is not in (0, 1].
         """
         ...
 
